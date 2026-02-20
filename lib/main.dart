@@ -1,5 +1,334 @@
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:dio/dio.dart';
+import 'package:cookie_jar/cookie_jar.dart';
+import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+import 'package:url_launcher/url_launcher_string.dart';
+import 'http_adapter.dart' as http_adapter;
+import 'dart:convert';
+
+/// Simple API client to hit the POSI web backend and keep session cookies.
+class ApiClient {
+  ApiClient({String? baseUrl})
+      : _baseUrl = baseUrl ??
+            const String.fromEnvironment(
+              'POSI_API_BASE',
+              defaultValue: '',
+            ) {
+    final fallback = _baseUrl.isNotEmpty
+        ? _baseUrl
+        : (kIsWeb ? Uri.base.origin : 'http://localhost:3000');
+    _baseUrlResolved = fallback;
+    final jar = CookieJar();
+    _dio = Dio(
+      BaseOptions(
+        baseUrl: _baseUrlResolved,
+        followRedirects:
+            false, // avoid cross-site redirect CORS in web; handle 302 manually
+        validateStatus: (code) => code != null && code < 500,
+        extra: const {'withCredentials': true},
+      ),
+    );
+    _dio.httpClientAdapter = http_adapter.createAdapter();
+    if (!kIsWeb) {
+      _dio.interceptors.add(CookieManager(jar));
+    }
+  }
+
+  late final Dio _dio;
+  final String _baseUrl;
+  late final String _baseUrlResolved;
+
+  String get baseUrl => _baseUrlResolved;
+
+  Future<List<TicketData>> fetchTickets() async {
+    final res = await _dio.get<Map<String, dynamic>>('/api/chat/tickets',
+        queryParameters: {'mine': 1});
+    if (res.statusCode != null && res.statusCode! >= 400) {
+      throw Exception('Gagal memuat tiket (${res.statusCode})');
+    }
+    final list = (res.data?['tickets'] as List?) ?? [];
+    return list
+        .map((e) => TicketData.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<ChatMessageData>> fetchMessages(int ticketId) async {
+    final res = await _dio
+        .get<Map<String, dynamic>>('/api/chat/tickets/$ticketId/messages');
+    if (res.statusCode != null && res.statusCode! >= 400) {
+      throw Exception('Gagal memuat pesan (${res.statusCode})');
+    }
+    final list = (res.data?['messages'] as List?) ?? [];
+    return list
+        .map((e) => ChatMessageData.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> sendMessage(int ticketId, String text) async {
+    await _dio
+        .post('/api/chat/tickets/$ticketId/messages', data: {'text': text});
+  }
+
+  Future<TicketData> createTicket(
+      int? competitionId, String topic, String summary) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      '/api/chat/tickets',
+      data: {
+        'competitionId': competitionId,
+        'topic': topic,
+        'summary': summary,
+        'message': summary,
+      },
+    );
+    if (res.statusCode != null && res.statusCode! >= 400) {
+      throw Exception('Gagal membuat tiket (${res.statusCode})');
+    }
+    final t = res.data?['ticket'] as Map<String, dynamic>? ?? {};
+    final firstMsg = res.data?['firstMessage'] as Map<String, dynamic>?;
+    final ticket = TicketData.fromJson(t)
+      ..lastMessage = firstMsg != null ? firstMsg['text'] as String? : null;
+    return ticket;
+  }
+
+  Future<ProfileData> fetchProfile() async {
+    final res = await _dio.get<Map<String, dynamic>>(
+      '/api/profile',
+      options: Options(
+        headers: {
+          'Accept': 'application/json',
+        },
+      ),
+    );
+    if (res.statusCode != null && res.statusCode! >= 400) {
+      throw Exception('Gagal memuat profil (${res.statusCode})');
+    }
+    final Map<String, dynamic> data =
+        res.data ?? (jsonDecode(res.data.toString()) as Map<String, dynamic>);
+    return ProfileData.fromJson(data);
+  }
+
+  Future<LoginResult> login(String email, String password) async {
+    try {
+      debugPrint('Login request => $baseUrl');
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/login',
+        data: {
+          'email': email,
+          'password': password,
+          'redirectTo': '/',
+        },
+        options: Options(contentType: Headers.formUrlEncodedContentType),
+      );
+
+      Map<String, dynamic>? data;
+      final ct = res.headers.value('content-type') ?? '';
+      try {
+        if (ct.contains('application/json')) {
+          if (res.data is Map<String, dynamic>) {
+            data = res.data as Map<String, dynamic>;
+          } else if (res.data is String) {
+            data = jsonDecode(res.data as String) as Map<String, dynamic>;
+          }
+        }
+      } catch (_) {
+        // ignore JSON parse errors for non-JSON responses (e.g., redirected HTML)
+      }
+
+      final code = res.statusCode ?? 0;
+      if (code >= 400) {
+        return LoginResult(false, 'Login gagal (${res.statusCode})');
+      }
+
+      if (data != null && data['errors'] != null) {
+        final errors = data['errors'] as Map;
+        final msg = errors['form'] as String? ??
+            errors['email'] as String? ??
+            errors['password'] as String?;
+        return LoginResult(false, msg ?? 'Email atau password salah');
+      }
+
+      // Treat 2xx or 3xx as success; cookie should already be set by browser
+      return LoginResult(true, null);
+    } catch (_) {
+      return LoginResult(false, 'Tidak bisa terhubung ke server');
+    }
+  }
+  Future<List<CompetitionOption>> fetchCompetitions() async {
+    final res = await _dio.get<Map<String, dynamic>>('/api/competitions');
+    if (res.statusCode != null && res.statusCode! >= 400) {
+      throw Exception('Gagal memuat kompetisi (${res.statusCode})');
+    }
+    final list = (res.data?['competitions'] as List?) ??
+        (res.data?['data'] as List?) ??
+        [];
+    return list
+        .map((e) => CompetitionOption.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+}
+
+class LoginResult {
+  LoginResult(this.ok, this.message);
+  final bool ok;
+  final String? message;
+}
+
+final apiClient = ApiClient();
+
+class CompetitionOption {
+  CompetitionOption({required this.id, required this.title});
+  final int id;
+  final String title;
+
+  factory CompetitionOption.fromJson(Map<String, dynamic> json) =>
+      CompetitionOption(
+        id: json['id'] ?? 0,
+        title: (json['title'] ?? json['name'] ?? '').toString(),
+      );
+}
+
+class TicketData {
+  TicketData({
+    required this.id,
+    required this.topic,
+    required this.summary,
+    required this.status,
+    required this.competitionTitle,
+    this.lastMessage,
+    this.lastMessageAt,
+  });
+
+  final int id;
+  final String topic;
+  final String summary;
+  String status;
+  final String competitionTitle;
+  String? lastMessage;
+  String? lastMessageAt;
+
+  factory TicketData.fromJson(Map<String, dynamic> json) => TicketData(
+        id: json['id'] ?? 0,
+        topic: (json['topic'] ?? '').toString(),
+        summary: (json['summary'] ?? '').toString(),
+        status: (json['status'] ?? '').toString(),
+        competitionTitle: (json['competitionTitle'] ?? 'Kompetisi') as String,
+        lastMessage: (json['lastMessage']?['text']) as String?,
+        lastMessageAt: (json['lastMessageAt'] ?? json['updatedAt']) as String?,
+      );
+}
+
+class ChatMessageData {
+  ChatMessageData({
+    required this.id,
+    required this.senderType,
+    required this.text,
+    required this.createdAt,
+  });
+
+  final int id;
+  final String senderType; // 'user' | 'admin'
+  final String text;
+  final String createdAt;
+
+  factory ChatMessageData.fromJson(Map<String, dynamic> json) =>
+      ChatMessageData(
+        id: json['id'] ?? DateTime.now().millisecondsSinceEpoch,
+        senderType: (json['senderType'] ?? '').toString(),
+        text: (json['text'] ?? '').toString(),
+        createdAt: (json['createdAt'] ?? '').toString(),
+      );
+}
+
+class ProfileData {
+  ProfileData({
+    required this.id,
+    required this.name,
+    required this.email,
+    required this.whatsapp,
+    required this.levelName,
+    required this.kelasName,
+    required this.tanggalLahir,
+    required this.agama,
+    required this.jenisKelamin,
+    required this.provinsiName,
+    required this.kabupatenName,
+    required this.kecamatanName,
+    required this.namaSekolah,
+  });
+
+  final int id;
+  final String name;
+  final String email;
+  final String whatsapp;
+  final String levelName;
+  final String kelasName;
+  final String tanggalLahir;
+  final String agama;
+  final String jenisKelamin;
+  final String provinsiName;
+  final String kabupatenName;
+  final String kecamatanName;
+  final String namaSekolah;
+
+  factory ProfileData.fromJson(Map<String, dynamic> json) {
+    final user = json['user'] as Map<String, dynamic>? ?? {};
+    final levels = (json['levels'] as List?) ?? [];
+    final kelas = (json['kelas'] as List?) ?? [];
+    final geo = (json['geographic'] as Map<String, dynamic>?) ?? {};
+    final provinces =
+        (geo['provinces'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final cities = (geo['cities'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final districts =
+        (geo['districts'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    String levelName = '';
+    if (user['level_id'] != null) {
+      levelName = levels
+              .map((e) => e as Map<String, dynamic>)
+              .firstWhere((e) => e['id'] == user['level_id'], orElse: () => {})
+              .cast<String, dynamic>()['level_name'] ??
+          '';
+    }
+    String kelasName = '';
+    if (user['kelas_id'] != null) {
+      kelasName = kelas
+              .map((e) => e as Map<String, dynamic>)
+              .firstWhere((e) => e['id'] == user['kelas_id'], orElse: () => {})
+              .cast<String, dynamic>()['nama_kelas'] ??
+          '';
+    }
+
+    String pick(v) => (v ?? '').toString().trim();
+
+    return ProfileData(
+      id: user['id'] ?? 0,
+      name: pick(user['name']),
+      email: pick(user['email']),
+      whatsapp: pick(user['whatsapp']),
+      levelName: levelName,
+      kelasName: kelasName,
+      tanggalLahir: pick(user['tanggal_lahir']),
+      agama: pick(user['agama']),
+      jenisKelamin: pick(user['jenis_kelamin']),
+      provinsiName: provinces.firstWhere(
+            (p) => p['code'] == user['provinsi'],
+            orElse: () => const {'name': ''},
+          )['name'] as String? ??
+          '',
+      kabupatenName: cities.firstWhere(
+            (c) => c['code'] == user['kabupaten'],
+            orElse: () => const {'name': ''},
+          )['name'] as String? ??
+          '',
+      kecamatanName: districts.firstWhere(
+            (d) => d['code'] == user['kecamatan'],
+            orElse: () => const {'name': ''},
+          )['name'] as String? ??
+          '',
+      namaSekolah: pick(user['nama_sekolah']),
+    );
+  }
+}
 
 void main() {
   runApp(const PosiMobileApp());
@@ -25,8 +354,12 @@ class PosiMobileApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.white,
         fontFamily: 'Roboto',
         textTheme: const TextTheme(
-          headlineMedium: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.2, color: Color(0xFF143155)),
-          titleLarge: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF143155)),
+          headlineMedium: TextStyle(
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.2,
+              color: Color(0xFF143155)),
+          titleLarge:
+              TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF143155)),
           bodyMedium: TextStyle(height: 1.4, color: Color(0xFF1E2F45)),
         ),
         inputDecorationTheme: InputDecorationTheme(
@@ -47,7 +380,8 @@ class PosiMobileApp extends StatelessWidget {
             backgroundColor: const Color(0xFF1E88E5),
             foregroundColor: Colors.white,
             minimumSize: const Size.fromHeight(52),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             textStyle: const TextStyle(fontWeight: FontWeight.w700),
           ),
         ),
@@ -59,7 +393,8 @@ class PosiMobileApp extends StatelessWidget {
           showUnselectedLabels: true,
         ),
         chipTheme: ChipThemeData(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           side: BorderSide.none,
           labelStyle: const TextStyle(color: Color(0xFF143155)),
           backgroundColor: const Color(0xFFEAF2FF),
@@ -92,10 +427,62 @@ class _RootState extends State<_Root> {
   }
 }
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, required this.onLogin});
 
   final VoidCallback onLogin;
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    final email = _emailCtrl.text.trim();
+    final password = _passCtrl.text;
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _error = 'Email dan password wajib diisi');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await apiClient.login(email, password);
+      if (!mounted) return;
+      // Anggap berhasil untuk status 2xx/3xx; backend sudah log sukses.
+      setState(() {
+        _loading = false;
+        _error = null;
+      });
+      widget.onLogin();
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Gagal login: ${e.message}';
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Gagal login: $e';
+        _loading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -128,36 +515,91 @@ class LoginScreen extends StatelessWidget {
                   'Login untuk mulai ngobrol dengan admin dan pantau tiket Anda.',
                   style: TextStyle(color: Color(0xFF9AB3D7)),
                 ),
-                const SizedBox(height: 36),
-                const Text('Email', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 24),
+                if (_error != null)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3E1E1E),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFE57373)),
+                    ),
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: Color(0xFFFFCDD2)),
+                    ),
+                  ),
+                const Text('Email',
+                    style: TextStyle(
+                        color: Colors.white70, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
-                const TextField(
+                TextField(
+                  controller: _emailCtrl,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
+                  enabled: !_loading,
+                  decoration: const InputDecoration(
                     hintText: 'nama@contoh.com',
-                    prefixIcon: Icon(Icons.mail_outline, color: Color(0xFF6E8BB6)),
+                    prefixIcon:
+                        Icon(Icons.mail_outline, color: Color(0xFF6E8BB6)),
                   ),
                 ),
                 const SizedBox(height: 18),
-                const Text('Password', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+                const Text('Password',
+                    style: TextStyle(
+                        color: Colors.white70, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
-                const TextField(
+                TextField(
+                  controller: _passCtrl,
                   obscureText: true,
-                  decoration: InputDecoration(
-                    hintText: '••••••••',
-                    prefixIcon: Icon(Icons.lock_outline, color: Color(0xFF6E8BB6)),
+                  enabled: !_loading,
+                  decoration: const InputDecoration(
+                    hintText: '********',
+                    prefixIcon:
+                        Icon(Icons.lock_outline, color: Color(0xFF6E8BB6)),
                   ),
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton(
-                  onPressed: onLogin,
-                  child: const Text('Masuk'),
+                  onPressed: _loading ? null : _handleLogin,
+                  child: _loading
+                      ? Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(width: 10),
+                            Text('Sedang masuk...'),
+                          ],
+                        )
+                      : const Text('Masuk'),
                 ),
                 const SizedBox(height: 14),
-                _GoogleLoginButton(onPressed: onLogin),
+                _GoogleLoginButton(
+                  onPressed: _loading
+                      ? null
+                      : () async {
+                          final url = "${apiClient.baseUrl}/auth/google";
+                          if (await canLaunchUrlString(url)) {
+                            await launchUrlString(url,
+                                mode: LaunchMode.externalApplication);
+                          } else {
+                            if (mounted)
+                              setState(() =>
+                                  _error = 'Tidak bisa membuka Google Login');
+                          }
+                        },
+                ),
                 const SizedBox(height: 12),
                 TextButton(
-                  onPressed: () {},
+                  onPressed: _loading ? null : () {},
                   child: const Text(
                     'Lupa password?',
                     style: TextStyle(color: Color(0xFF8CB7FF)),
@@ -173,16 +615,23 @@ class LoginScreen extends StatelessWidget {
 }
 
 class MainShell extends StatefulWidget {
-  const MainShell({super.key, required this.onLogout});
+  const MainShell({super.key, required this.onLogout, this.initialIndex = 4});
 
   final VoidCallback onLogout;
+  final int initialIndex;
 
   @override
   State<MainShell> createState() => _MainShellState();
 }
 
 class _MainShellState extends State<MainShell> {
-  int _index = 2; // default to Home in the middle
+  late int _index; // default set in initState
+
+  @override
+  void initState() {
+    super.initState();
+    _index = widget.initialIndex;
+  }
 
   final _pages = const [
     ChatTab(),
@@ -207,11 +656,16 @@ class _MainShellState extends State<MainShell> {
         currentIndex: _index,
         onTap: (i) => setState(() => _index = i),
         items: [
-          const BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_rounded), label: 'Chat'),
-          const BottomNavigationBarItem(icon: Icon(Icons.info_rounded), label: 'Informasi'),
-          BottomNavigationBarItem(icon: _HomeIcon(active: _index == 2), label: 'Home'),
-          const BottomNavigationBarItem(icon: Icon(Icons.support_agent_rounded), label: 'Support'),
-          const BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profil'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.chat_bubble_rounded), label: 'Chat'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.info_rounded), label: 'Informasi'),
+          BottomNavigationBarItem(
+              icon: _HomeIcon(active: _index == 2), label: 'Home'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.support_agent_rounded), label: 'Support'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.person_rounded), label: 'Profil'),
         ],
       ),
     );
@@ -229,7 +683,7 @@ class HomeTab extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _TitleRow(title: 'Selamat datang 👋'),
+            _TitleRow(title: 'Selamat datang Ã°Å¸â€˜â€¹'),
             const SizedBox(height: 16),
             _GlassCard(
               child: Column(
@@ -247,9 +701,13 @@ class HomeTab extends StatelessWidget {
             const SizedBox(height: 16),
             Row(
               children: const [
-                _MetricCard(label: 'Tiket aktif', value: '3', accent: Color(0xFF4CC2FF)),
+                _MetricCard(
+                    label: 'Tiket aktif',
+                    value: '3',
+                    accent: Color(0xFF4CC2FF)),
                 SizedBox(width: 12),
-                _MetricCard(label: 'Selesai', value: '12', accent: Color(0xFF7CE7C7)),
+                _MetricCard(
+                    label: 'Selesai', value: '12', accent: Color(0xFF7CE7C7)),
               ],
             ),
           ],
@@ -266,119 +724,17 @@ class ChatTab extends StatefulWidget {
   State<ChatTab> createState() => _ChatTabState();
 }
 
-class Ticket {
-  Ticket({
-    required this.id,
-    required this.title,
-    required this.user,
-    required this.summary,
-    required this.status,
-    required this.lastMessage,
-    required this.topic,
-    required this.time,
-    required this.unread,
-    required this.avatarColor,
-    this.pinned = false,
-  });
-
-  final int id;
-  final String title;
-  final String user;
-  final String summary;
-  final String status; // Baru | Proses | Selesai
-  final String lastMessage;
-  final String topic;
-  final String time; // e.g. 07.26
-  final int unread;
-  final Color avatarColor;
-  final bool pinned;
-}
-
-class ChatMessage {
-  ChatMessage(this.from, this.text, this.time);
-
-  final String from; // admin/user
-  final String text;
-  final String time;
-}
-
 class _ChatTabState extends State<ChatTab> {
-  final _tickets = [
-    Ticket(
-      id: 1,
-      title: 'Tiket #1023',
-      user: 'Alya N.',
-      summary: 'Verifikasi pembayaran',
-      status: 'Proses',
-      lastMessage: 'Kami sudah terima bukti transfernya ya.',
-      topic: 'Pemesanan',
-      time: '07.26',
-      unread: 2,
-      avatarColor: const Color(0xFF4CC2FF),
-      pinned: true,
-    ),
-    Ticket(
-      id: 2,
-      title: 'Tiket #1018',
-      user: 'Rafi S.',
-      summary: 'Ganti tim lomba online',
-      status: 'Baru',
-      lastMessage: 'Halo admin, saya mau ganti anggota tim.',
-      topic: 'Pendaftaran',
-      time: '16/02',
-      unread: 0,
-      avatarColor: const Color(0xFF7CE7C7),
-      pinned: true,
-    ),
-    Ticket(
-      id: 3,
-      title: 'Tiket #0999',
-      user: 'POSI Admin',
-      summary: 'Jadwal final onsite',
-      status: 'Selesai',
-      lastMessage: 'Terima kasih, jadwal final sudah jelas.',
-      topic: 'Lainnya',
-      time: '24/01',
-      unread: 0,
-      avatarColor: const Color(0xFF8CA2C3),
-    ),
-    Ticket(
-      id: 4,
-      title: 'Tiket #1044',
-      user: 'Dewi K.',
-      summary: 'Tukar jadwal sesi',
-      status: 'Baru',
-      lastMessage: 'Boleh tukar jadwal sesi interview?',
-      topic: 'Lainnya',
-      time: '05.31',
-      unread: 1,
-      avatarColor: const Color(0xFF1B4B9E),
-    ),
-  ];
-
-  final _messages = <int, List<ChatMessage>>{
-    1: [
-      ChatMessage('user', 'Selamat siang admin, saya sudah transfer.', '09.12'),
-      ChatMessage('admin', 'Kami sudah terima bukti transfernya ya.', '09.14'),
-    ],
-    2: [
-      ChatMessage('user', 'Halo admin, saya mau ganti anggota tim.', '08.40'),
-    ],
-    3: [
-      ChatMessage('admin', 'Jadwal final onsite sudah rilis, cek dashboard ya.', '10.10'),
-      ChatMessage('user', 'Terima kasih, jadwal final sudah jelas.', '10.12'),
-    ],
-    4: [
-      ChatMessage('user', 'Boleh tukar jadwal sesi interview?', '05.31'),
-    ],
-  };
-
-  int _activeId = 1;
+  List<TicketData> _tickets = [];
+  final _messages = <int, List<ChatMessageData>>{};
+  int? _activeId;
   bool _showDetail = false;
   final _controller = TextEditingController();
   final _newSummaryCtrl = TextEditingController();
   String _newTopic = 'Pendaftaran';
-  String _newCompetition = 'Pilih kompetisi';
+  bool _loadingTickets = true;
+  bool _loadingMessages = false;
+  bool _sending = false;
 
   @override
   void dispose() {
@@ -388,144 +744,247 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _loadTickets();
+  }
+
+  Future<void> _loadTickets() async {
+    setState(() => _loadingTickets = true);
+    try {
+      final res = await apiClient.fetchTickets();
+      setState(() {
+        _tickets = res;
+        if (_tickets.isNotEmpty) {
+          _activeId ??= _tickets.first.id;
+        }
+      });
+      if (_activeId != null) {
+        _loadMessages(_activeId!);
+      }
+    } catch (_) {
+      // ignore for now
+    } finally {
+      if (mounted) setState(() => _loadingTickets = false);
+    }
+  }
+
+  Future<void> _loadMessages(int ticketId) async {
+    setState(() => _loadingMessages = true);
+    try {
+      final res = await apiClient.fetchMessages(ticketId);
+      setState(() {
+        _messages[ticketId] = res;
+      });
+    } catch (_) {
+      // ignore
+    } finally {
+      if (mounted) setState(() => _loadingMessages = false);
+    }
+  }
+
+  Future<void> _sendMessage() async {
+    if (_activeId == null) return;
+    final text = _controller.text.trim();
+    if (text.isEmpty || _sending) return;
+    final ticketId = _activeId!;
+    final now = DateTime.now().toIso8601String();
+    setState(() {
+      _sending = true;
+      final list = _messages[ticketId] ?? [];
+      _messages[ticketId] = [
+        ...list,
+        ChatMessageData(id: DateTime.now().millisecondsSinceEpoch, senderType: 'user', text: text, createdAt: now)
+      ];
+      _controller.clear();
+    });
+    try {
+      await apiClient.sendMessage(ticketId, text);
+      // refresh messages to ensure server state
+      await _loadMessages(ticketId);
+      setState(() {
+        _tickets = _tickets
+            .map((t) => t.id == ticketId
+                ? (TicketData(
+                    id: t.id,
+                    topic: t.topic,
+                    summary: t.summary,
+                    status: t.status,
+                    competitionTitle: t.competitionTitle,
+                    lastMessage: text,
+                    lastMessageAt: now,
+                  ))
+                : t)
+            .toList();
+      });
+    } catch (_) {
+      // rollback UI if failed
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final activeTicket = _tickets.firstWhere((t) => t.id == _activeId, orElse: () => _tickets.first);
-    final msgs = _messages[activeTicket.id] ?? [];
+    TicketData? activeTicket;
+    if (_activeId != null) {
+      for (final t in _tickets) {
+        if (t.id == _activeId) {
+          activeTicket = t;
+          break;
+        }
+      }
+      activeTicket ??= _tickets.isNotEmpty ? _tickets.first : null;
+    }
+    final msgs = activeTicket == null
+        ? <ChatMessageData>[]
+        : (_messages[activeTicket.id] ?? []);
 
     return _GradientBackground(
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 250),
-        child: _showDetail
-            ? Column(
-                key: const ValueKey('detail'),
-                children: [
-                  _ChatAppBar(
-                    title: activeTicket.user,
-                    subtitle: activeTicket.title,
-                    color: activeTicket.avatarColor,
-                    onBack: () => setState(() => _showDetail = false),
-                  ),
-                  Expanded(
+        child: (_showDetail && activeTicket != null)
+            ? Builder(builder: (_) {
+                final ticket = activeTicket!;
+                return Column(
+                  key: const ValueKey('detail'),
+                  children: [
+                    _ChatAppBar(
+                      title: ticket.competitionTitle,
+                      subtitle: ticket.topic,
+                      color: const Color(0xFF1E88E5),
+                      onBack: () => setState(() => _showDetail = false),
+                    ),
+                    Expanded(
                       child: Container(
-                      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FBFF),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: const Color(0xFFD4E4FF)),
-                      ),
-                      child: Column(
-                        children: [
-                          Expanded(
-                              child: ListView.builder(
-                              itemCount: msgs.length,
-                              reverse: false,
-                              itemBuilder: (_, i) {
-                                final m = msgs[i];
-                                final isMe = m.from == 'admin';
-                                return Align(
-                                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                                  child: Container(
-                                    margin: const EdgeInsets.symmetric(vertical: 6),
-                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-                                    constraints: const BoxConstraints(maxWidth: 300),
-                                    decoration: BoxDecoration(
-                                      color: isMe ? const Color(0xFF1E88E5) : const Color(0xFFEFF4FF),
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          m.text,
-                                          style: TextStyle(
-                                            height: 1.3,
-                                            color: isMe ? Colors.white : const Color(0xFF1A2F4D),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              m.time,
-                                              style: TextStyle(
-                                                color: Colors.white.withOpacity(0.6),
-                                                fontSize: 11,
+                        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FBFF),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: const Color(0xFFD4E4FF)),
+                        ),
+                        child: Column(
+                          children: [
+                            Expanded(
+                                child: _loadingMessages
+                                    ? const Center(
+                                        child: CircularProgressIndicator())
+                                    : ListView.builder(
+                                        itemCount: msgs.length,
+                                        reverse: false,
+                                        itemBuilder: (_, i) {
+                                          final m = msgs[i];
+                                          final isMe = m.senderType == 'admin';
+                                          final time =
+                                              DateTime.tryParse(m.createdAt);
+                                          final timeText = time != null
+                                              ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
+                                              : '';
+                                          return Align(
+                                            alignment: isMe
+                                                ? Alignment.centerRight
+                                                : Alignment.centerLeft,
+                                            child: Container(
+                                              margin:
+                                                  const EdgeInsets.symmetric(
+                                                      vertical: 6),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      vertical: 10,
+                                                      horizontal: 14),
+                                              constraints:
+                                                  const BoxConstraints(
+                                                      maxWidth: 300),
+                                              decoration: BoxDecoration(
+                                                color: isMe
+                                                    ? const Color(0xFF1E88E5)
+                                                    : const Color(0xFFEFF4FF),
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                              ),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    m.text,
+                                                    style: TextStyle(
+                                                      height: 1.3,
+                                                      color: isMe
+                                                          ? Colors.white
+                                                          : const Color(
+                                                              0xFF1A2F4D),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    timeText,
+                                                    style: TextStyle(
+                                                      color: Colors.white
+                                                          .withOpacity(0.6),
+                                                      fontSize: 11,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ),
-                                            if (isMe) ...[
-                                              const SizedBox(width: 6),
-                                              Icon(Icons.done_all,
-                                                  size: 16, color: Colors.white.withOpacity(0.7)),
-                                            ],
-                                          ],
-                                        ),
-                                      ],
+                                          );
+                                        },
+                                      )),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _controller,
+                                    enabled: !_sending,
+                                    decoration: const InputDecoration(
+                                      hintText: "Ketik pesan",
+                                      contentPadding: EdgeInsets.symmetric(
+                                          vertical: 12, horizontal: 14),
                                     ),
+                                    onSubmitted: (_) => _sendMessage(),
                                   ),
-                                );
-                              },
+                                ),
+                                const SizedBox(width: 10),
+                                SizedBox(
+                                  height: 48,
+                                  width: 48,
+                                  child: ElevatedButton(
+                                    onPressed: _sending ? null : _sendMessage,
+                                    style: ElevatedButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14)),
+                                    ),
+                                    child: _sending
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                        : const Icon(Icons.send_rounded,
+                                            color: Colors.white),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          Row(
-                            children: [
-                              SizedBox(
-                                width: 46,
-                                height: 46,
-                                child: OutlinedButton(
-                                  style: OutlinedButton.styleFrom(
-                                    padding: EdgeInsets.zero,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                    side: const BorderSide(color: Color(0xFFD4E4FF)),
-                                    backgroundColor: Colors.white,
-                                  ),
-                                  onPressed: () => _showAttachSheet(context),
-                                  child: const Icon(Icons.add, color: Color(0xFF1E88E5)),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: TextField(
-                                  controller: _controller,
-                                  decoration: const InputDecoration(
-                                    hintText: 'Ketik pesan',
-                                    contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              SizedBox(
-                                height: 48,
-                                width: 48,
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    if (_controller.text.trim().isEmpty) return;
-                                    setState(() {
-                                      msgs.add(ChatMessage('admin', _controller.text.trim(), 'Now'));
-                                      _messages[activeTicket.id] = msgs;
-                                      _controller.clear();
-                                    });
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    padding: EdgeInsets.zero,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                                  ),
-                                  child: const Icon(Icons.send_rounded, size: 20),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              )
+                  ],
+                );
+              })
             : Column(
                 key: const ValueKey('list'),
                 children: [
                   const _TitleRow(title: 'Chat'),
+                  const SizedBox(height: 12),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
                     child: Container(
@@ -537,29 +996,35 @@ class _ChatTabState extends State<ChatTab> {
                       child: TextField(
                         decoration: InputDecoration(
                           hintText: 'Cari chat atau tiket',
-                          prefixIcon: const Icon(Icons.search, color: Color(0xFF7B8CA7)),
+                          prefixIcon: const Icon(Icons.search,
+                              color: Color(0xFF7B8CA7)),
                           border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                          contentPadding:
+                              const EdgeInsets.symmetric(vertical: 12),
                         ),
                       ),
                     ),
                   ),
                   Expanded(
-                    child: ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
-                      itemBuilder: (_, i) {
-                        final t = _tickets[i];
-                        return _ChatListItem(
-                          ticket: t,
-                          onTap: () => setState(() {
-                            _activeId = t.id;
-                            _showDetail = true;
-                          }),
-                        );
-                      },
-                      separatorBuilder: (_, __) => const SizedBox(height: 4),
-                      itemCount: _tickets.length,
-                    ),
+                    child: _loadingTickets
+                        ? const Center(child: CircularProgressIndicator())
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
+                            itemBuilder: (_, i) {
+                              final t = _tickets[i];
+                              return _ChatListItem(
+                                ticket: t,
+                                onTap: () => setState(() {
+                                  _activeId = t.id;
+                                  _showDetail = true;
+                                  _loadMessages(t.id);
+                                }),
+                              );
+                            },
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 4),
+                            itemCount: _tickets.length,
+                          ),
                   ),
                   Padding(
                     padding: const EdgeInsets.only(right: 20, bottom: 20),
@@ -584,131 +1049,34 @@ class _ChatTabState extends State<ChatTab> {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => NewChatPage(
         initialTopic: _newTopic,
-        initialCompetition: _newCompetition,
-        onCreate: (topic, competition, summary) {
+        initialCompetitionId: null,
+        onCreate: (topic, competitionId, summary) {
           _newTopic = topic;
-          _newCompetition = competition;
           _newSummaryCtrl.text = summary;
-          _createNewChat();
+          _createNewChat(topic, competitionId, summary);
         },
       ),
       fullscreenDialog: true,
     ));
   }
 
-  void _createNewChat() {
-    final summary = _newSummaryCtrl.text.trim();
-    if (summary.isEmpty) return;
-    final nextId = (_tickets.map((e) => e.id).fold<int>(0, (p, c) => c > p ? c : p)) + 1;
-    final newTicket = Ticket(
-      id: nextId,
-      title: 'Tiket #$nextId',
-      user: 'Anda',
-      summary: summary,
-      status: 'Baru',
-      lastMessage: summary,
-      topic: _newTopic,
-      time: 'Now',
-      unread: 0,
-      avatarColor: const Color(0xFF25D366),
-    );
-    setState(() {
-      _tickets.insert(0, newTicket);
-      _messages[nextId] = [ChatMessage('user', summary, 'Now')];
-      _activeId = nextId;
-      _showDetail = true;
-      _newSummaryCtrl.clear();
-      _newTopic = 'Pendaftaran';
-      _newCompetition = 'Pilih kompetisi';
-    });
-  }
-
-  void _showAttachSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Wrap(
-            runSpacing: 12,
-            children: [
-              const Text('Kirim lampiran', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              ListTile(
-                leading: const Icon(Icons.attach_file, color: Color(0xFF1E88E5)),
-                title: const Text('File'),
-                onTap: () async {
-                  await _pickFile(context);
-                  Navigator.of(context).pop();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.image_outlined, color: Color(0xFF1E88E5)),
-                title: const Text('Gambar'),
-                onTap: () async {
-                  await _pickImage(context);
-                  Navigator.of(context).pop();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.videocam_outlined, color: Color(0xFF1E88E5)),
-                title: const Text('Video'),
-                onTap: () async {
-                  await _pickVideo(context);
-                  Navigator.of(context).pop();
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _pickFile(BuildContext context) async {
-    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
-    if (result != null && result.files.isNotEmpty) {
-      _addAttachmentMessage(result.files.first.name);
-    } else {
-      _showInfo(context, 'Pemilihan file dibatalkan');
+  Future<void> _createNewChat(
+      String topic, int? competitionId, String summary) async {
+    final trimmed = summary.trim();
+    if (trimmed.isEmpty) return;
+    try {
+      final ticket = await apiClient.createTicket(competitionId, topic, trimmed);
+      setState(() {
+        _tickets = [ticket, ..._tickets];
+        _activeId = ticket.id;
+        _showDetail = true;
+        _newSummaryCtrl.clear();
+        _newTopic = 'Pendaftaran';
+      });
+      await _loadMessages(ticket.id);
+    } catch (_) {
+      // ignore error for now
     }
-  }
-
-  Future<void> _pickImage(BuildContext context) async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false);
-    if (result != null && result.files.isNotEmpty) {
-      _addAttachmentMessage(result.files.first.name);
-    } else {
-      _showInfo(context, 'Pemilihan gambar dibatalkan');
-    }
-  }
-
-  Future<void> _pickVideo(BuildContext context) async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.video, allowMultiple: false);
-    if (result != null && result.files.isNotEmpty) {
-      _addAttachmentMessage(result.files.first.name);
-    } else {
-      _showInfo(context, 'Pemilihan video dibatalkan');
-    }
-  }
-
-  void _addAttachmentMessage(String name) {
-    final activeTicket = _tickets.firstWhere((t) => t.id == _activeId, orElse: () => _tickets.first);
-    final msgs = _messages[activeTicket.id] ?? [];
-    setState(() {
-      msgs.add(ChatMessage('admin', 'Lampiran: $name', 'Now'));
-      _messages[activeTicket.id] = msgs;
-    });
-  }
-
-  void _showInfo(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(message),
-      duration: const Duration(seconds: 2),
-    ));
   }
 }
 
@@ -726,7 +1094,8 @@ class InfoTab extends StatelessWidget {
             _TitleRow(title: 'Informasi'),
             SizedBox(height: 12),
             _GlassCard(
-              child: Text('Tempatkan pengumuman, jadwal kompetisi, atau FAQ di sini.'),
+              child: Text(
+                  'Tempatkan pengumuman, jadwal kompetisi, atau FAQ di sini.'),
             ),
           ],
         ),
@@ -748,7 +1117,9 @@ class SupportTab extends StatelessWidget {
           children: const [
             _TitleRow(title: 'Support'),
             SizedBox(height: 12),
-            _GlassCard(child: Text('Daftar kanal bantuan (email, WhatsApp, knowledge base) akan ditempatkan di sini.')),
+            _GlassCard(
+                child: Text(
+                    'Daftar kanal bantuan (email, WhatsApp, knowledge base) akan ditempatkan di sini.')),
           ],
         ),
       ),
@@ -756,93 +1127,187 @@ class SupportTab extends StatelessWidget {
   }
 }
 
-class SettingsTab extends StatelessWidget {
+class SettingsTab extends StatefulWidget {
   const SettingsTab({super.key, required this.onLogout});
 
   final VoidCallback onLogout;
+
+  @override
+  State<SettingsTab> createState() => _SettingsTabState();
+}
+
+class _SettingsTabState extends State<SettingsTab> {
+  late Future<ProfileData> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _profileFuture = apiClient.fetchProfile();
+  }
+
+  String _initials(String name) {
+    if (name.trim().isEmpty) return '?';
+    final parts = name.trim().split(RegExp(r'\\s+'));
+    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+    return (parts[0].isNotEmpty ? parts[0][0] : '') +
+        (parts[1].isNotEmpty ? parts[1][0] : '');
+  }
+
+  String _fmtDate(String raw) {
+    if (raw.isEmpty) return '-';
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return raw;
+    return "${dt.day.toString().padLeft(2, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.year}";
+  }
+
+  Widget _infoRow(String label, String value, {bool isDate = false}) {
+    final shown = isDate ? _fmtDate(value) : (value.isEmpty ? '-' : value);
+    return _ProfileRow(label: label, value: shown);
+  }
 
   @override
   Widget build(BuildContext context) {
     return _GradientBackground(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _TitleRow(title: 'Profil'),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 92,
-                          height: 92,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF1E88E5), Color(0xFF6CC5FF)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
+          return FutureBuilder<ProfileData>(
+            future: _profileFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      'Gagal memuat profil: ${snapshot.error}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                );
+              }
+              final profile = snapshot.data!;
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _TitleRow(title: 'Profil'),
+                      const SizedBox(height: 16),
+                      Center(
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 92,
+                              height: 92,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFF1E88E5),
+                                    Color(0xFF6CC5FF)
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                boxShadow: const [
+                                  BoxShadow(
+                                      color: Color(0x331E88E5),
+                                      blurRadius: 16,
+                                      offset: Offset(0, 10)),
+                                ],
+                              ),
+                              child: Center(
+                                child: Text(
+                                  _initials(profile.name),
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w800),
+                                ),
+                              ),
                             ),
-                            boxShadow: const [
-                              BoxShadow(color: Color(0x331E88E5), blurRadius: 16, offset: Offset(0, 10)),
-                            ],
-                          ),
-                          child: const Center(
-                            child: Text(
-                              'AN',
-                              style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w800),
-                            ),
-                          ),
+                            const SizedBox(height: 12),
+                            Text(
+                                profile.name.isEmpty
+                                    ? 'Pengguna'
+                                    : profile.name,
+                                style: const TextStyle(
+                                    fontSize: 20, fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 4),
+                            Text(profile.email,
+                                style:
+                                    const TextStyle(color: Color(0xFF526380))),
+                          ],
                         ),
-                        const SizedBox(height: 12),
-                        const Text('Alya Nabila', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 4),
-                        const Text('alya.nabila@email.com', style: TextStyle(color: Color(0xFF526380))),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 18),
+                      _GlassCard(
+                        child: Column(
+                          children: [
+                            _infoRow('Nomor telepon', profile.whatsapp),
+                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
+                            _infoRow('Tanggal lahir', profile.tanggalLahir,
+                                isDate: true),
+                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
+                            _infoRow('Jenis kelamin', profile.jenisKelamin),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _GlassCard(
+                        child: Column(
+                          children: [
+                            _infoRow('Agama', profile.agama),
+                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
+                            _infoRow('Level', profile.levelName),
+                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
+                            _infoRow('Kelas', profile.kelasName),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _GlassCard(
+                        child: Column(
+                          children: [
+                            _infoRow('Provinsi', profile.provinsiName),
+                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
+                            _infoRow('Kabupaten', profile.kabupatenName),
+                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
+                            _infoRow('Kecamatan', profile.kecamatanName),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _GlassCard(
+                        child: Column(
+                          children: [
+                            _infoRow('Sekolah/Institusi', profile.namaSekolah),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.logout_rounded),
+                        label: const Text('Keluar'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF1E88E5),
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(50),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                        onPressed: widget.onLogout,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 18),
-                  _GlassCard(
-                    child: Column(
-                      children: [
-                        _ProfileRow(label: 'Nomor telepon', value: '+62 812 3456 7890'),
-                        const Divider(height: 20, color: Color(0xFFE0E8F5)),
-                        _ProfileRow(label: 'Institusi', value: 'Universitas Panca Abadi'),
-                        const Divider(height: 20, color: Color(0xFFE0E8F5)),
-                        _ProfileRow(label: 'Peran', value: 'Peserta'),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _GlassCard(
-                    child: Column(
-                      children: const [
-                        _SettingRow(label: 'Ubah kata sandi'),
-                        Divider(height: 20, color: Color(0xFFE0E8F5)),
-                        _SettingRow(label: 'Bahasa'),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.logout_rounded),
-                    label: const Text('Keluar'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E88E5),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size.fromHeight(50),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                    onPressed: onLogout,
-                  ),
-                ],
-              ),
-            ),
+                ),
+              );
+            },
           );
         },
       ),
@@ -868,7 +1333,11 @@ class _TitleRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: const Color(0xFFD4E4FF)),
           ),
-          child: const Text('POSI', style: TextStyle(color: Color(0xFF1E88E5), fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+          child: const Text('POSI',
+              style: TextStyle(
+                  color: Color(0xFF1E88E5),
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3)),
         ),
       ],
     );
@@ -980,18 +1449,36 @@ class _ChatAppBar extends StatelessWidget {
           CircleAvatar(
             radius: 20,
             backgroundColor: color.withOpacity(0.2),
-            child: Text(title.isNotEmpty ? title[0] : '?', style: const TextStyle(color: Colors.white)),
+            child: Text(title.isNotEmpty ? title[0] : '?',
+                style: const TextStyle(color: Colors.white)),
           ),
           const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-              Text(subtitle, style: const TextStyle(color: Color(0xFF9AB3D7), fontSize: 12)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 16),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Color(0xFF9AB3D7), fontSize: 12),
+                ),
+              ],
+            ),
           ),
-          const Spacer(),
-          IconButton(onPressed: () {}, icon: const Icon(Icons.videocam_outlined)),
+          const SizedBox(width: 8),
+          IconButton(
+              onPressed: () {}, icon: const Icon(Icons.videocam_outlined)),
           IconButton(onPressed: () {}, icon: const Icon(Icons.call_outlined)),
           IconButton(onPressed: () {}, icon: const Icon(Icons.more_vert)),
         ],
@@ -1003,32 +1490,33 @@ class _ChatAppBar extends StatelessWidget {
 class _ChatListItem extends StatelessWidget {
   const _ChatListItem({required this.ticket, required this.onTap});
 
-  final Ticket ticket;
+  final TicketData ticket;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    String timeText = '';
+    if (ticket.lastMessageAt != null) {
+      final t = DateTime.tryParse(ticket.lastMessageAt!);
+      if (t != null) {
+        timeText =
+            '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+      }
+    }
     return ListTile(
       onTap: onTap,
-      leading: Stack(
-        children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: const Color(0xFFE3F2FF),
-            child: Text(ticket.user.isNotEmpty ? ticket.user[0] : '?',
-                style: const TextStyle(color: Color(0xFF1A2F4D), fontWeight: FontWeight.w700)),
-          ),
-          if (ticket.pinned)
-            const Positioned(
-              right: -2,
-              bottom: -2,
-              child: Icon(Icons.push_pin, size: 16, color: Color(0xFF8CA2C3)),
-            ),
-        ],
+      leading: const CircleAvatar(
+        radius: 22,
+        backgroundColor: Color(0xFFE3F2FF),
+        child: Icon(Icons.chat_bubble_outline, color: Color(0xFF1A2F4D)),
       ),
-      title: Text(ticket.user, style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF0A1F3F))),
+      title: Text(ticket.topic,
+          style: const TextStyle(
+              fontWeight: FontWeight.w700, color: Color(0xFF0A1F3F))),
       subtitle: Text(
-        ticket.lastMessage,
+        ticket.lastMessage?.isNotEmpty == true
+            ? ticket.lastMessage!
+            : (ticket.summary),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(color: Color(0xFF526380)),
@@ -1036,20 +1524,16 @@ class _ChatListItem extends StatelessWidget {
       trailing: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Text(ticket.time, style: const TextStyle(color: Color(0xFF526380), fontSize: 12)),
+          Text(timeText,
+              style: const TextStyle(color: Color(0xFF526380), fontSize: 12)),
           const SizedBox(height: 6),
-          if (ticket.unread > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E88E5),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                ticket.unread.toString(),
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
-              ),
-            ),
+          Text(
+            ticket.status,
+            style: const TextStyle(
+                color: Color(0xFF1E88E5),
+                fontSize: 12,
+                fontWeight: FontWeight.w600),
+          ),
         ],
       ),
     );
@@ -1059,7 +1543,7 @@ class _ChatListItem extends StatelessWidget {
 class _GoogleLoginButton extends StatelessWidget {
   const _GoogleLoginButton({required this.onPressed});
 
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -1069,7 +1553,8 @@ class _GoogleLoginButton extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           side: const BorderSide(color: Color(0xFF1E88E5)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           backgroundColor: Colors.white,
           foregroundColor: const Color(0xFF1E88E5),
         ),
@@ -1131,12 +1616,12 @@ class NewChatPage extends StatefulWidget {
     super.key,
     required this.onCreate,
     required this.initialTopic,
-    required this.initialCompetition,
+    required this.initialCompetitionId,
   });
 
-  final void Function(String topic, String competition, String summary) onCreate;
+  final void Function(String topic, int? competitionId, String summary) onCreate;
   final String initialTopic;
-  final String initialCompetition;
+  final int? initialCompetitionId;
 
   @override
   State<NewChatPage> createState() => _NewChatPageState();
@@ -1144,20 +1629,43 @@ class NewChatPage extends StatefulWidget {
 
 class _NewChatPageState extends State<NewChatPage> {
   late String _topic;
-  late String _competition;
+  int? _competitionId;
   final _summaryCtrl = TextEditingController();
+  bool _loadingCompetitions = true;
+  String? _competitionError;
+  List<CompetitionOption> _competitions = [];
 
   @override
   void initState() {
     super.initState();
     _topic = widget.initialTopic;
-    _competition = widget.initialCompetition;
+    _competitionId = widget.initialCompetitionId;
+    _loadCompetitions();
   }
 
   @override
   void dispose() {
     _summaryCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadCompetitions() async {
+    try {
+      final list = await apiClient.fetchCompetitions();
+      setState(() {
+        _competitions = list;
+        _competitionId ??= list.isNotEmpty ? list.first.id : null;
+        _competitionError = null;
+      });
+    } catch (_) {
+      setState(() {
+        _competitions = [];
+        _competitionId = null;
+        _competitionError = 'Daftar kompetisi tidak dapat dimuat (opsional).';
+      });
+    } finally {
+      if (mounted) setState(() => _loadingCompetitions = false);
+    }
   }
 
   @override
@@ -1171,7 +1679,8 @@ class _NewChatPageState extends State<NewChatPage> {
           icon: const Icon(Icons.close, color: Color(0xFF1E2F45)),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text('Chat Admin', style: TextStyle(color: Color(0xFF1E2F45))),
+        title: const Text('Chat Admin',
+            style: TextStyle(color: Color(0xFF1E2F45))),
         centerTitle: false,
       ),
       body: SafeArea(
@@ -1220,23 +1729,66 @@ class _NewChatPageState extends State<NewChatPage> {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  const Text('Nama kompetisi', style: TextStyle(color: Color(0xFF1A2F4D))),
+                  const Text('Nama kompetisi',
+                      style: TextStyle(color: Color(0xFF1A2F4D))),
                   const SizedBox(height: 6),
-                  _SelectBox(
-                    value: _competition,
-                    items: const ['Pilih kompetisi', 'POSI Online 2026', 'POSI Onsite 2026'],
-                    onChanged: (v) => setState(() => _competition = v ?? 'Pilih kompetisi'),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: const Color(0xFFD4E4FF)),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int?>(
+                        isExpanded: true,
+                        value: _competitionId,
+                        hint: const Text('Tanpa kompetisi (opsional)'),
+                        items: [
+                          const DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text('Tanpa kompetisi'),
+                          ),
+                          ..._competitions.map((c) => DropdownMenuItem<int?>(
+                                value: c.id,
+                                child: Text(
+                                  c.title,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ))
+                        ],
+                        onChanged: _loadingCompetitions
+                            ? null
+                            : (v) => setState(() => _competitionId = v),
+                      ),
+                    ),
                   ),
+                  if (_competitionError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        _competitionError!,
+                        style: const TextStyle(
+                            color: Colors.redAccent, fontSize: 12),
+                      ),
+                    ),
+                  if (_loadingCompetitions)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 6),
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
                   const SizedBox(height: 12),
-                  const Text('Perihal', style: TextStyle(color: Color(0xFF1A2F4D))),
+                  const Text('Perihal',
+                      style: TextStyle(color: Color(0xFF1A2F4D))),
                   const SizedBox(height: 6),
                   _SelectBox(
                     value: _topic,
                     items: const ['Pendaftaran', 'Pemesanan', 'Lainnya'],
-                    onChanged: (v) => setState(() => _topic = v ?? 'Pendaftaran'),
+                    onChanged: (v) =>
+                        setState(() => _topic = v ?? 'Pendaftaran'),
                   ),
                   const SizedBox(height: 12),
-                  const Text('Ringkasan masalah', style: TextStyle(color: Color(0xFF1A2F4D))),
+                  const Text('Ringkasan masalah',
+                      style: TextStyle(color: Color(0xFF1A2F4D))),
                   const SizedBox(height: 6),
                   TextField(
                     controller: _summaryCtrl,
@@ -1244,7 +1796,8 @@ class _NewChatPageState extends State<NewChatPage> {
                     decoration: const InputDecoration(
                       filled: true,
                       fillColor: Color(0xFFF8FBFF),
-                      hintText: 'Tuliskan singkat masalah yang ingin ditanyakan',
+                      hintText:
+                          'Tuliskan singkat masalah yang ingin ditanyakan',
                       hintStyle: TextStyle(color: Color(0xFF7B8CA7)),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.all(Radius.circular(14)),
@@ -1277,15 +1830,18 @@ class _NewChatPageState extends State<NewChatPage> {
                       const Spacer(),
                       ElevatedButton(
                         onPressed: () {
-                          widget.onCreate(_topic, _competition, _summaryCtrl.text.trim());
+                          widget.onCreate(
+                              _topic, _competitionId, _summaryCtrl.text.trim());
                           Navigator.of(context).pop();
                         },
                         style: ElevatedButton.styleFrom(
                           minimumSize: const Size(140, 44),
                           backgroundColor: const Color(0xFF1E88E5),
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 18, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
                           elevation: 2,
                         ),
                         child: const Text('Mulai Chat'),
@@ -1303,7 +1859,8 @@ class _NewChatPageState extends State<NewChatPage> {
 }
 
 class _SelectBox extends StatelessWidget {
-  const _SelectBox({required this.value, required this.items, required this.onChanged});
+  const _SelectBox(
+      {required this.value, required this.items, required this.onChanged});
 
   final String value;
   final List<String> items;
@@ -1311,7 +1868,8 @@ class _SelectBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final safeValue = items.contains(value) ? value : (items.isNotEmpty ? items.first : null);
+    final safeValue =
+        items.contains(value) ? value : (items.isNotEmpty ? items.first : null);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1328,7 +1886,10 @@ class _SelectBox extends StatelessWidget {
         icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF7B8CA7)),
         onChanged: onChanged,
         items: items
-            .map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(color: Color(0xFF1A2F4D)))))
+            .map((e) => DropdownMenuItem(
+                value: e,
+                child:
+                    Text(e, style: const TextStyle(color: Color(0xFF1A2F4D)))))
             .toList(),
       ),
     );
@@ -1336,7 +1897,8 @@ class _SelectBox extends StatelessWidget {
 }
 
 class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.label, required this.value, required this.accent});
+  const _MetricCard(
+      {required this.label, required this.value, required this.accent});
 
   final String label;
   final String value;
@@ -1352,7 +1914,8 @@ class _MetricCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFFD4E4FF)),
           boxShadow: const [
-            BoxShadow(color: Color(0x141E88E5), blurRadius: 12, offset: Offset(0, 8)),
+            BoxShadow(
+                color: Color(0x141E88E5), blurRadius: 12, offset: Offset(0, 8)),
           ],
         ),
         child: Column(
@@ -1364,7 +1927,9 @@ class _MetricCard extends StatelessWidget {
               children: [
                 Text(value,
                     style: const TextStyle(
-                        fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF143155))),
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF143155))),
                 const SizedBox(width: 8),
                 Icon(Icons.trending_up, color: accent, size: 18),
               ],
@@ -1386,8 +1951,9 @@ class _SettingRow extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: Color(0xFF1A2F4D), fontWeight: FontWeight.w600)),
-        const Icon(Icons.chevron_right, color: Color(0xFF7B8CA7)),
+        Text(label,
+            style: const TextStyle(
+                color: Color(0xFF1A2F4D), fontWeight: FontWeight.w600)),
       ],
     );
   }
@@ -1409,11 +1975,16 @@ class _ProfileRow extends StatelessWidget {
           children: [
             Text(label, style: const TextStyle(color: Color(0xFF526380))),
             const SizedBox(height: 4),
-            Text(value, style: const TextStyle(color: Color(0xFF143155), fontWeight: FontWeight.w700)),
+            Text(value,
+                style: const TextStyle(
+                    color: Color(0xFF143155), fontWeight: FontWeight.w700)),
           ],
         ),
-        const Icon(Icons.edit_outlined, color: Color(0xFF7B8CA7)),
       ],
     );
   }
 }
+
+
+
+
