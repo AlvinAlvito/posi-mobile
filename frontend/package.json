@@ -1,0 +1,14 @@
+{
+  "name": "posi-admin-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run serve",
+    "serve": "npx serve . -l 5174"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {}
+}

@@ -1,0 +1,2023 @@
+import {
+  mysqlTable,
+  mysqlSchema,
+  AnyMySqlColumn,
+  primaryKey,
+  bigint,
+  varchar,
+  text,
+  timestamp,
+  int,
+  unique,
+  mediumtext,
+  tinyint,
+  decimal,
+  date,
+  time,
+  datetime,
+  index,
+  longtext,
+  mysqlEnum,
+} from "drizzle-orm/mysql-core";
+import { sql } from "drizzle-orm";
+const accessLevelEnum = mysqlEnum("access_level", ["public", "competition", "private"]);
+const employmentTypeEnum = mysqlEnum("employment_type", ["fulltime", "contract", "intern", "parttime"]);
+const recruiterLocationTypeEnum = mysqlEnum("location_type", ["onsite", "hybrid", "remote"]);
+const parsingStatusEnum = mysqlEnum("parsing_status", ["pending", "success", "failed"]);
+const questionTypeEnum = mysqlEnum("question_type", ["yesno", "number", "text"]);
+const chatStatusEnum = mysqlEnum("chat_status", ["Baru", "Proses", "Selesai"]);
+const chatSenderTypeEnum = mysqlEnum("chat_sender_type", ["user", "admin"]);
+const chatTopicEnum = mysqlEnum("chat_topic", ["Pendaftaran", "Pemesanan", "Lainnya"]);
+const announcementCategoryEnum = mysqlEnum("announcement_category", ["online", "offline"]);
+const offlineUploadStatusEnum = mysqlEnum("offline_upload_status", ["uploaded", "processed"]);
+const offlineMatchStatusEnum = mysqlEnum("offline_match_status", [
+  "matched",
+  "fuzzy",
+  "unmatched",
+  "manual_required",
+]);
+const offlineMedalEnum = mysqlEnum("offline_medal", [
+  "emas",
+  "perak",
+  "perunggu",
+  "harapan",
+  "none",
+]);
+const devicePlatformEnum = mysqlEnum("device_platform", ["android", "ios", "web"]);
+const broadcastScopeEnum = mysqlEnum("chat_broadcast_scope", [
+  "all",
+  "competition",
+  "ticket_status",
+  "user_ids",
+  "ticket_ids",
+]);
+const broadcastStatusEnum = mysqlEnum("chat_broadcast_status", [
+  "draft",
+  "scheduled",
+  "sending",
+  "sent",
+  "failed",
+]);
+const broadcastTargetStatusEnum = mysqlEnum("chat_broadcast_target_status", [
+  "pending",
+  "sent",
+  "failed",
+]);
+const reminderKindEnum = mysqlEnum("chat_reminder_kind", [
+  "no_admin_reply",
+  "no_user_reply",
+  "pending_status",
+]);
+const reminderStatusEnum = mysqlEnum("chat_reminder_status", [
+  "scheduled",
+  "sent",
+  "skipped",
+  "failed",
+]);
+
+export const abouts = mysqlTable(
+  "abouts",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    image: varchar({ length: 255 }),
+    title: varchar({ length: 255 }).notNull(),
+    about_text: text().notNull(),
+    sub1: varchar({ length: 255 }).notNull(),
+    content1: text().notNull(),
+    sub2: varchar({ length: 255 }).notNull(),
+    content2: text().notNull(),
+    sub3: varchar({ length: 255 }).notNull(),
+    content3: text().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "abouts_id" })]
+);
+
+export const administrasis = mysqlTable(
+  "administrasis",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    province_code: varchar({ length: 255 }).notNull(),
+    province_name: varchar({ length: 255 }).notNull(),
+    regency_code: varchar({ length: 255 }).notNull(),
+    regency_name: varchar({ length: 255 }).notNull(),
+    district_code: varchar({ length: 255 }).notNull(),
+    district_name: varchar({ length: 255 }).notNull(),
+    nspn: varchar({ length: 255 }).notNull(),
+    school_name: varchar({ length: 255 }).notNull(),
+    bentuk: varchar({ length: 255 }).notNull(),
+    page: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "administrasis_id" })]
+);
+
+export const admins = mysqlTable(
+  "admins",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    email: varchar({ length: 255 }).notNull(),
+    email_verified_at: timestamp(),
+    password: varchar({ length: 255 }).notNull(),
+    level: int().notNull(),
+    image: varchar({ length: 255 }),
+    remember_token: varchar({ length: 100 }),
+    token: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "admins_id" }),
+    unique("admins_email_unique").on(table.email),
+  ]
+);
+
+export const beritas = mysqlTable(
+  "beritas",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    category: varchar({ length: 255 }).notNull(),
+    content: text().notNull(),
+    image: varchar({ length: 255 }).notNull(),
+    admin_id: int().notNull(),
+    is_status: int(),
+    slug: varchar({ length: 255 }).notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "beritas_id" })]
+);
+
+export const bonus_claimeds = mysqlTable(
+  "bonus_claimeds",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    userid: int().notNull(),
+    competition_id: int().notNull(),
+    study_id: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "bonus_claimeds_id" })]
+);
+
+export const cache = mysqlTable(
+  "cache",
+  {
+    key: varchar({ length: 255 }).notNull(),
+    value: mediumtext().notNull(),
+    expiration: int().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.key], name: "cache_key" })]
+);
+
+export const cache_locks = mysqlTable(
+  "cache_locks",
+  {
+    key: varchar({ length: 255 }).notNull(),
+    owner: varchar({ length: 255 }).notNull(),
+    expiration: int().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.key], name: "cache_locks_key" })]
+);
+
+export const carts = mysqlTable(
+  "carts",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    userid: int().notNull(),
+    competition_id: int().notNull(),
+    study_id: int().notNull(),
+    premium: tinyint(),
+    product_id: int(),
+    type: int().notNull(),
+    quantity: int(),
+    unit_price: int(),
+    total_purchase: int(),
+    buyer: int(),
+    is_fisik: int(),
+    berat: decimal({ precision: 11, scale: 2 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "carts_id" })]
+);
+
+export const competition_bonus_products = mysqlTable(
+  "competition_bonus_products",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_id: int().notNull(),
+    free_register_product: varchar({ length: 255 }),
+    premium_register_product: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "competition_bonus_products_id" }),
+  ]
+);
+
+export const competition_products = mysqlTable(
+  "competition_products",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_id: int().notNull(),
+    product_id: int().notNull(),
+    is_free: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "competition_products_id" }),
+  ]
+);
+
+const locationTypeEnum = mysqlEnum("location_type", ["online", "offline"]);
+
+export const competitions = mysqlTable(
+  "competitions",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    date: date().notNull(),
+    start_registration_date: date().notNull(),
+    finish_registration_date: date().notNull(),
+    start_registration_time: time().notNull(),
+    finish_registration_time: time().notNull(),
+    type: int().notNull(),
+    price: int().notNull(),
+    image: varchar({ length: 255 }).notNull(),
+    is_active: int().notNull(),
+    level: varchar({ length: 255 }).notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+    province_code: varchar({ length: 255 }),
+    city_code: varchar({ length: 255 }),
+    district_code: varchar({ length: 255 }),
+    province_name: varchar({ length: 255 }),
+    city_name: varchar({ length: 255 }),
+    district_name: varchar({ length: 255 }),
+    agama: varchar({ length: 255 }),
+    sekolah: varchar({ length: 255 }),
+    link_juknis: varchar({ length: 255 }),
+    link_zoom: varchar({ length: 255 }),
+    link_twibbon: varchar({ length: 255 }),
+    link_wa: varchar({ length: 255 }),
+    link_telegram: varchar({ length: 255 }),
+    expired_order: datetime(),
+    location_type: locationTypeEnum,
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "competitions_id" })]
+);
+
+export const document_settings = mysqlTable(
+  "document_settings",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    product_id: int().notNull(),
+    competition_id: int().notNull(),
+    document_type: varchar({ length: 255 }).notNull(),
+    name_top: int(),
+    name_bottom: int(),
+    name_left: int(),
+    name_right: int(),
+    name_font_size: int(),
+    name_font_color: varchar({ length: 255 }),
+    name_font_family: varchar({ length: 255 }),
+    name_font_style: varchar({ length: 255 }),
+    name_font_weight: varchar({ length: 255 }),
+    school_top: int(),
+    school_bottom: int(),
+    school_left: int(),
+    school_right: int(),
+    scholl_font_size: int(),
+    school_font_color: varchar({ length: 255 }),
+    school_font_family: varchar({ length: 255 }),
+    school_font_style: varchar({ length: 255 }),
+    school_font_weight: varchar({ length: 255 }),
+    province_top: int(),
+    province_bottom: int(),
+    province_left: int(),
+    province_right: int(),
+    province_font_size: int(),
+    province_font_color: varchar({ length: 255 }),
+    province_font_family: varchar({ length: 255 }),
+    province_font_style: varchar({ length: 255 }),
+    province_font_weight: varchar({ length: 255 }),
+    level_top: int(),
+    level_bottom: int(),
+    level_left: int(),
+    level_right: int(),
+    level_font_size: int(),
+    level_font_color: varchar({ length: 255 }),
+    level_font_family: varchar({ length: 255 }),
+    level_font_style: varchar({ length: 255 }),
+    level_font_weight: varchar({ length: 255 }),
+    study_top: int(),
+    study_bottom: int(),
+    study_left: int(),
+    study_right: int(),
+    study_font_size: int(),
+    study_font_color: varchar({ length: 255 }),
+    study_font_family: varchar({ length: 255 }),
+    study_font_style: varchar({ length: 255 }),
+    study_font_weight: varchar({ length: 255 }),
+    desc_top: int(),
+    desc_bottom: int(),
+    desc_left: int(),
+    desc_right: int(),
+    desc_font_size: int(),
+    desc_font_color: varchar({ length: 255 }),
+    desc_font_family: varchar({ length: 255 }),
+    desc_font_style: varchar({ length: 255 }),
+    desc_font_weight: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "document_settings_id" })]
+);
+
+export const events = mysqlTable(
+  "events",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    content: text().notNull(),
+    image: varchar({ length: 255 }).notNull(),
+    is_status: int().notNull(),
+    admin_id: int().notNull(),
+    slug: varchar({ length: 255 }).notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "events_id" })]
+);
+
+export const exam_sessions = mysqlTable(
+  "exam_sessions",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    transaction_id: int().notNull(),
+    invoice_id: int().notNull(),
+    competition_id: int().notNull(),
+    study_id: int().notNull(),
+    userid: int().notNull(),
+    token: varchar({ length: 255 }).notNull(),
+    is_finish: int(),
+    jumlah_benar: int(),
+    jumlah_salah: int(),
+    jumlah_lewat: int(),
+    total_score: int(),
+    medali: varchar({ length: 20 }),
+    nilai: varchar({ length: 5 }),
+    hitung_id: int(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+    ranking: int(),
+    finish_timestamp: timestamp(),
+  },
+  (table) => [
+    index("exam_sessions_transaction_id_index").on(table.transaction_id),
+    index("exam_sessions_invoice_id_index").on(table.invoice_id),
+    index("exam_sessions_competition_id_index").on(table.competition_id),
+    index("exam_sessions_study_id_index").on(table.study_id),
+    index("exam_sessions_userid_index").on(table.userid),
+    index("exam_sessions_token_index").on(table.token),
+    primaryKey({ columns: [table.id], name: "exam_sessions_id" }),
+
+    // unique userid, competition_id, study_id
+    unique("exam_sessions_userid_competition_id_study_id_unique").on(
+      table.userid,
+      table.competition_id,
+      table.study_id
+    ),
+  ]
+);
+
+export type ExamSession = typeof exam_sessions.$inferSelect;
+
+export const failed_jobs = mysqlTable(
+  "failed_jobs",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    uuid: varchar({ length: 255 }).notNull(),
+    connection: text().notNull(),
+    queue: text().notNull(),
+    payload: longtext().notNull(),
+    exception: longtext().notNull(),
+    failed_at: timestamp().defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "failed_jobs_id" }),
+    unique("failed_jobs_uuid_unique").on(table.uuid),
+  ]
+);
+
+export const hompages = mysqlTable(
+  "hompages",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    visi: varchar({ length: 255 }),
+    misi: text(),
+    flow1: varchar({ length: 255 }),
+    flow2: varchar({ length: 255 }),
+    flow3: varchar({ length: 255 }),
+    flow_image1: varchar({ length: 255 }),
+    flow_image2: varchar({ length: 255 }),
+    flow_image3: varchar({ length: 255 }),
+    about_us: text(),
+    about_us_image: varchar({ length: 255 }),
+    privacy: longtext(),
+    term: longtext(),
+    refund: longtext(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "hompages_id" })]
+);
+
+export const invoices = mysqlTable(
+  "invoices",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    invoice: varchar({ length: 255 }).notNull(),
+    userid: int().notNull(),
+    total_amount: int().notNull(),
+    payment_status: int().notNull(),
+    transaction_status: int().notNull(),
+    image: varchar({ length: 255 }),
+    payment_with: varchar({ length: 255 }),
+    payment_amount: int(),
+    payment_date: datetime(),
+    expired_time: datetime(),
+    buyer: int().notNull(),
+    berat: decimal({ precision: 11, scale: 2 }),
+    province_id: varchar({ length: 10 }),
+    city_id: varchar({ length: 10 }),
+    district_id: varchar({ length: 10 }),
+    province_name: varchar({ length: 255 }),
+    city_name: varchar({ length: 255 }),
+    district_name: varchar({ length: 255 }),
+    postal_code: varchar({ length: 255 }),
+    kurir: varchar({ length: 100 }),
+    service: varchar({ length: 255 }),
+    delivery_cost: int(),
+    angka_unik: int(),
+    ref_code: varchar({ length: 20 }),
+    grand_total: int().notNull(),
+    address: text(),
+    receiver_name: varchar({ length: 255 }),
+    receiver_phone: varchar({ length: 255 }),
+    buyer_name: varchar({ length: 255 }),
+    buyer_email: varchar({ length: 255 }),
+    buyer_school: varchar({ length: 255 }),
+    file1: varchar({ length: 255 }),
+    file2: varchar({ length: 255 }),
+    file3: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+    redirect_url: text(),
+  },
+  (table) => [
+    index("invoices_userid_index").on(table.userid),
+    index("invoices_province_id_index").on(table.province_id),
+    index("invoices_city_id_index").on(table.city_id),
+    index("invoices_district_id_index").on(table.district_id),
+    primaryKey({ columns: [table.id], name: "invoices_id" }),
+  ]
+);
+
+export const kelas = mysqlTable(
+  "kelas",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    nama_kelas: varchar({ length: 255 }).notNull(),
+    jenjang: varchar({ length: 255 }).notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "kelas_id" })]
+);
+
+export const levels = mysqlTable(
+  "levels",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    level_name: varchar({ length: 255 }).notNull(),
+    jenjang: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "levels_id" })]
+);
+
+export const migrations = mysqlTable(
+  "migrations",
+  {
+    id: int({ unsigned: true }).autoincrement().notNull(),
+    migration: varchar({ length: 255 }).notNull(),
+    batch: int().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "migrations_id" })]
+);
+
+export const news_categories = mysqlTable(
+  "news_categories",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    category: varchar({ length: 255 }).notNull(),
+    slug: varchar({ length: 255 }).notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "news_categories_id" })]
+);
+
+export const partners = mysqlTable(
+  "partners",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    image: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "partners_id" })]
+);
+
+export const password_reset_tokens = mysqlTable(
+  "password_reset_tokens",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    email: varchar({ length: 255 }).notNull(),
+    token: varchar({ length: 255 }).notNull(),
+    expires_at: timestamp().notNull(),
+    created_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "password_reset_tokens_id" }),
+    index("idx_password_reset_tokens_token").on(table.token),
+    index("idx_password_reset_tokens_user_id").on(table.user_id),
+  ]
+);
+
+export const pelajarans = mysqlTable(
+  "pelajarans",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "pelajarans_id" })]
+);
+
+export const pembahasans = mysqlTable(
+  "pembahasans",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    ujian_id: int().notNull(),
+    pembahasan: text().notNull(),
+    image: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "pembahasans_id" })]
+);
+
+export const pendaftaran_logs = mysqlTable(
+  "pendaftaran_logs",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    admin_id: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "pendaftaran_logs_id" })]
+);
+
+export const pengumumen = mysqlTable(
+  "pengumumen",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_id: int().notNull(),
+    study_id: varchar({ length: 255 }).notNull(),
+    is_status: int().notNull(),
+    description: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "pengumumen_id" })]
+);
+
+export const announcement_letters = mysqlTable(
+  "announcement_letters",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    category: announcementCategoryEnum.notNull(),
+    file_url: varchar({ length: 512 }).notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "announcement_letters_id" })]
+);
+
+export const personal_access_tokens = mysqlTable(
+  "personal_access_tokens",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    tokenable_type: varchar({ length: 255 }).notNull(),
+    tokenable_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    token: varchar({ length: 64 }).notNull(),
+    abilities: text(),
+    last_used_at: timestamp(),
+    expires_at: timestamp(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    index("personal_access_tokens_tokenable_type_tokenable_id_index").on(
+      table.tokenable_type,
+      table.tokenable_id
+    ),
+    primaryKey({ columns: [table.id], name: "personal_access_tokens_id" }),
+    unique("personal_access_tokens_token_unique").on(table.token),
+  ]
+);
+
+export const phone_codes = mysqlTable(
+  "phone_codes",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    country_name: varchar({ length: 255 }).notNull(),
+    code: varchar({ length: 255 }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "phone_codes_id" })]
+);
+
+export const product_competitions = mysqlTable(
+  "product_competitions",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    product_id: int().notNull(),
+    competition_id: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "product_competitions_id" }),
+  ]
+);
+
+export const product_documents = mysqlTable(
+  "product_documents",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    product_id: int().notNull(),
+    competition_id: int().notNull(),
+    document: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "product_documents_id" })]
+);
+
+export const products = mysqlTable(
+  "products",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    product_name: varchar({ length: 255 }).notNull(),
+    product_price: int().notNull(),
+    image: varchar({ length: 255 }),
+    product_link: varchar({ length: 255 }),
+    description: text(),
+    is_fisik: int().notNull(),
+    is_active: int().notNull(),
+    product_for: varchar({ length: 255 }),
+    is_combo: tinyint(),
+    composition: varchar({ length: 255 }),
+    berat: decimal({ precision: 11, scale: 2 }),
+    document_type: varchar({ length: 255 }),
+    level_id: varchar({ length: 255 }),
+    access_level: accessLevelEnum.default("private"),
+    valid_from: timestamp(),
+    valid_until: timestamp(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "products_id" })]
+);
+
+export const provinces = mysqlTable(
+  "provinces",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    province_code: varchar({ length: 255 }).notNull(),
+    province_name: varchar({ length: 255 }).notNull(),
+    regency_code: varchar({ length: 255 }).notNull(),
+    regency_name: varchar({ length: 255 }).notNull(),
+    district_code: varchar({ length: 255 }).notNull(),
+    district_name: varchar({ length: 255 }).notNull(),
+  },
+  (table) => [
+    index("provinces_province_code_index").on(table.province_code),
+    index("provinces_regency_code_index").on(table.regency_code),
+    index("provinces_district_code_index").on(table.district_code),
+    primaryKey({ columns: [table.id], name: "provinces_id" }),
+  ]
+);
+
+export const riwayats = mysqlTable(
+  "riwayats",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "riwayats_id" })]
+);
+
+export const schedule_testings = mysqlTable(
+  "schedule_testings",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    total: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "schedule_testings_id" })]
+);
+
+export const offline_competition_schedules = mysqlTable(
+  "offline_competition_schedules",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_id: int().notNull(),
+    gelombang: varchar({ length: 50 }).notNull(),
+    ruang: varchar({ length: 255 }).notNull(),
+    waktu: varchar({ length: 100 }).notNull(),
+    capacity: int().notNull().default(0),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "offline_competition_schedules_id" }),
+  ]
+);
+
+export const offline_competition_schedule_studies = mysqlTable(
+  "offline_competition_schedule_studies",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    schedule_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    study_id: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "offline_competition_schedule_studies_id" }),
+    index("offline_competition_schedule_studies_schedule_id_index").on(table.schedule_id),
+    index("offline_competition_schedule_studies_study_id_index").on(table.study_id),
+  ]
+);
+
+export const offline_competition_schedule_assignments = mysqlTable(
+  "offline_competition_schedule_assignments",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    schedule_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    study_id: int().notNull(),
+    user_id: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.id],
+      name: "offline_competition_schedule_assignments_id",
+    }),
+    unique("offline_competition_schedule_assignments_study_user_unique").on(
+      table.study_id,
+      table.user_id
+    ),
+    index("offline_competition_schedule_assignments_schedule_id_index").on(table.schedule_id),
+    index("offline_competition_schedule_assignments_study_id_index").on(table.study_id),
+  ]
+);
+
+export const sekolahs = mysqlTable(
+  "sekolahs",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    province_code: varchar({ length: 255 }).notNull(),
+    city_code: varchar({ length: 255 }).notNull(),
+    district_code: varchar({ length: 255 }).notNull(),
+    jenjang: varchar({ length: 255 }).notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "sekolahs_id" })]
+);
+
+export const session_hitungs = mysqlTable(
+  "session_hitungs",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    session_id: int().notNull(),
+    transaction_id: int().notNull(),
+    invoice_id: int().notNull(),
+    competition_id: int().notNull(),
+    study_id: int().notNull(),
+    userid: int().notNull(),
+    is_finish: int(),
+    jumlah_benar: int(),
+    jumlah_salah: int(),
+    jumlah_lewat: int(),
+    total_score: int(),
+    medali: int(),
+    nilai: int(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "session_hitungs_id" })]
+);
+
+export const old_sessions = mysqlTable(
+  "sessions",
+  {
+    id: varchar({ length: 255 }).notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }),
+    expires_at: timestamp().notNull(),
+    ip_address: varchar({ length: 45 }),
+    user_agent: text(),
+    payload: longtext().notNull(),
+    last_activity: int().notNull(),
+  },
+  (table) => [
+    index("sessions_user_id_index").on(table.user_id),
+    index("sessions_last_activity_index").on(table.last_activity),
+    primaryKey({ columns: [table.id], name: "sessions_id" }),
+  ]
+);
+
+export const sessions = mysqlTable(
+  "sessions_v2",
+  {
+    id: varchar({ length: 255 }).primaryKey(),
+    user_id: bigint({ mode: "number", unsigned: true }),
+    expires_at: timestamp().notNull(),
+    ip_address: varchar({ length: 45 }),
+    user_agent: text(),
+    payload: longtext().notNull(),
+  },
+  (table) => [index("sessions_v2_user_id_index").on(table.user_id)]
+);
+
+export const settings = mysqlTable(
+  "settings",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    app_name: varchar({ length: 255 }).notNull(),
+    app_title: varchar({ length: 255 }).notNull(),
+    app_logo: varchar({ length: 255 }).notNull(),
+    header_note: varchar({ length: 255 }),
+    bank_name: varchar({ length: 255 }).notNull(),
+    bank_account_number: varchar({ length: 255 }).notNull(),
+    bank_owner: varchar({ length: 255 }).notNull(),
+    whatsapp: varchar({ length: 255 }),
+    email: varchar({ length: 255 }),
+    admin_wa: varchar({ length: 255 }),
+    provinsi: varchar({ length: 100 }),
+    kabupaten: varchar({ length: 100 }),
+    kecamatan: varchar({ length: 100 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "settings_id" })]
+);
+
+export const soals = mysqlTable(
+  "soals",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_id: int().notNull(),
+    study_id: int().notNull(),
+    level_id: int().notNull(),
+    file_pembahasan: varchar({ length: 255 }),
+    admin_id: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    index("soals_competition_id_index").on(table.competition_id),
+    index("soals_study_id_index").on(table.study_id),
+    index("soals_level_id_index").on(table.level_id),
+    index("soals_admin_id_index").on(table.admin_id),
+    primaryKey({ columns: [table.id], name: "soals_id" }),
+  ]
+);
+
+export const studies = mysqlTable(
+  "studies",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_id: int().notNull(),
+    pelajaran_id: int().notNull(),
+    level_id: int().notNull(),
+
+    // legacy
+    /**
+     * @deprecated do not use this field, use start_timestamp_utc and finish_timestamp_utc instead
+     */
+    start_date: date().notNull(),
+    /**
+     * @deprecated do not use this field, use start_timestamp_utc and finish_timestamp_utc instead
+     */
+    start_time: time().notNull(),
+    /**
+     * @deprecated do not use this field, use start_timestamp_utc and finish_timestamp_utc instead
+     */
+    finish_time: time().notNull(),
+
+    // new
+    start_timestamp_utc: datetime({ mode: "date" }),
+    finish_timestamp_utc: datetime({ mode: "date" }),
+
+    status: tinyint().notNull(),
+    forum_link: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "studies_id" })]
+);
+
+export const teams = mysqlTable(
+  "teams",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    image: varchar({ length: 255 }),
+    urutan: int(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "teams_id" })]
+);
+
+export const testimonies = mysqlTable(
+  "testimonies",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    image: varchar({ length: 255 }),
+    message: text().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "testimonies_id" })]
+);
+
+export const transactions = mysqlTable(
+  "transactions",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    userid: int().notNull(),
+    invoice: varchar({ length: 255 }).notNull(),
+    invoice_id: int().notNull(),
+    competition_id: int().notNull(),
+    study_id: int().notNull(),
+    participant_number: varchar({ length: 20 }),
+    amount: int().notNull(),
+    is_fisik: int().notNull(),
+    product_id: int(),
+    type: int(),
+    quantity: int(),
+    unit_price: int(),
+    buyer: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    index("transactions_userid_index").on(table.userid),
+    index("transactions_invoice_index").on(table.invoice),
+    index("transactions_invoice_id_index").on(table.invoice_id),
+    index("transactions_competition_id_index").on(table.competition_id),
+    index("transactions_study_id_index").on(table.study_id),
+    index("transactions_product_id_index").on(table.product_id),
+    index("transactions_buyer_index").on(table.buyer),
+    unique("transactions_comp_partnum_unique").on(
+      table.competition_id,
+      table.participant_number
+    ),
+    primaryKey({ columns: [table.id], name: "transactions_id" }),
+  ]
+);
+
+export const ujians = mysqlTable(
+  "ujians",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    soal_id: int().notNull(),
+    competition_id: int().notNull(),
+    study_id: int().notNull(),
+    level_id: int().notNull(),
+    question_number: int().notNull(),
+    question_title: text().notNull(),
+    question_image: varchar({ length: 255 }),
+    option_a: text().notNull(),
+    option_b: text().notNull(),
+    option_c: text().notNull(),
+    option_d: text().notNull(),
+    option_e: text().notNull(),
+    option_image_a: varchar({ length: 255 }),
+    option_image_b: varchar({ length: 255 }),
+    option_image_c: varchar({ length: 255 }),
+    option_image_d: varchar({ length: 255 }),
+    option_image_e: varchar({ length: 255 }),
+    score_benar: int().notNull(),
+    score_salah: int().notNull(),
+    score_lewat: int().notNull(),
+    answer_key: varchar({ length: 255 }).notNull(),
+    orientation: int(),
+    admin_id: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    index("ujians_soal_id_index").on(table.soal_id),
+    index("ujians_competition_id_index").on(table.competition_id),
+    index("ujians_study_id_index").on(table.study_id),
+    index("ujians_level_id_index").on(table.level_id),
+    index("ujians_admin_id_index").on(table.admin_id),
+    primaryKey({ columns: [table.id], name: "ujians_id" }),
+
+    // unique soal_id, question_number
+    unique("ujians_soal_id_question_number_unique").on(
+      table.soal_id,
+      table.question_number
+    ),
+  ]
+);
+
+export const user_answers = mysqlTable(
+  "user_answers",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    session_id: int().notNull(),
+    id_soal: int().notNull(),
+    nomor_soal: varchar({ length: 255 }).notNull(),
+    jawaban_soal: varchar({ length: 255 }).notNull(),
+    hasil_jawaban: varchar({ length: 255 }).notNull(),
+    score: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    index("user_answers_session_id_index").on(table.session_id),
+    index("user_answers_id_soal_index").on(table.id_soal),
+    primaryKey({ columns: [table.id], name: "user_answers_id" }),
+    // unique session_id, id_soal
+    unique("user_answers_session_id_id_soal_unique").on(
+      table.session_id,
+      table.id_soal
+    ),
+    // unique session_id, nomor_soal
+    unique("user_answers_session_id_nomor_soal_unique").on(
+      table.session_id,
+      table.nomor_soal
+    ),
+  ]
+);
+
+const roleTypeEnum = mysqlEnum("role", ["", "guru", "student"]);
+
+export const users = mysqlTable(
+  "users",
+  {
+    id: bigint({ mode: "number", unsigned: true })
+      .primaryKey()
+      .autoincrement()
+      .notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    username: varchar({ length: 255 }).notNull(),
+    email: varchar({ length: 255 }).notNull(),
+    whatsapp: varchar({ length: 255 }),
+    level_id: int(),
+    kelas_id: int(),
+    email_verified_at: timestamp(),
+    password: varchar({ length: 255 }),
+    remember_token: varchar({ length: 100 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+    tanggal_lahir: date(),
+    agama: varchar({ length: 255 }),
+    jenis_kelamin: varchar({ length: 255 }),
+    provinsi: varchar({ length: 255 }),
+    kabupaten: varchar({ length: 255 }),
+    kecamatan: varchar({ length: 255 }),
+    nama_sekolah: varchar({ length: 255 }),
+    nomor_wa_wali: varchar({ length: 255 }),
+    email_code: varchar({ length: 255 }),
+    wa_code: varchar({ length: 255 }),
+    email_status: int(),
+    wa_status: int(),
+    user_image: varchar({ length: 255 }),
+    google_id: varchar({ length: 255 }),
+    country_code: varchar({ length: 255 }),
+    role: roleTypeEnum,
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "users_id" }),
+    unique("users_email_unique").on(table.email),
+  ]
+);
+
+export const password_resets = mysqlTable(
+  "password_resets",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    token: varchar({ length: 255 }).notNull(),
+    expires_at: timestamp().notNull(),
+    used_at: timestamp().default(sql`null`),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp()
+      .default(sql`now()`)
+      .onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "password_resets_id" }),
+    unique("password_resets_token_unique").on(table.token),
+    index("password_resets_user_id_index").on(table.user_id),
+    index("password_resets_token_index").on(table.token),
+    index("password_resets_expires_at_index").on(table.expires_at),
+  ]
+);
+
+export const visitors = mysqlTable(
+  "visitors",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    ip_address: varchar({ length: 255 }).notNull(),
+    page: varchar({ length: 255 }).notNull(),
+    slug: text(),
+    visits: int().notNull(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [primaryKey({ columns: [table.id], name: "visitors_id" })]
+);
+
+export const competition_cards = mysqlTable(
+  "competition_cards",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_name: varchar({ length: 255 }).notNull(),
+    display_name: varchar({ length: 255 }).notNull(),
+    background_image_url: varchar({ length: 500 }).notNull(),
+    google_sheet_url: varchar({ length: 500 }).notNull(),
+    is_active: tinyint().notNull().default(1),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "competition_cards_id" }),
+    unique("competition_cards_competition_name_unique").on(
+      table.competition_name
+    ),
+  ]
+);
+
+export const shortlinks = mysqlTable(
+  "shortlinks",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    short_code: varchar({ length: 255 }).notNull(),
+    target_url: text().notNull(),
+    is_active: tinyint().notNull().default(1),
+    expires_at: timestamp(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "shortlinks_id" }),
+    unique("shortlinks_short_code_unique").on(table.short_code),
+    index("shortlinks_is_active_index").on(table.is_active),
+  ]
+);
+
+export const print_document_configs = mysqlTable(
+  "print_document_configs",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_id: int(), // Allow null for global configurations
+    document_type: varchar({ length: 50 }).notNull(), // 'piagam' or 'certificate'
+    config_json: longtext().notNull(), // JSON configuration for positioning and styling
+    background_image: varchar({ length: 500 }), // Optional background image URL
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "print_document_configs_id" }),
+  ]
+);
+
+const bulkDataStatusEnum = mysqlEnum("bulk_status", ["submitted", "processing", "completed", "failed"]);
+
+export const bulk_data_logs = mysqlTable(
+  "bulk_data_logs",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }).notNull(), // Relasi ke users (guru yang upload)
+    bulk_data_json: longtext().notNull(), // JSON string berisi semua data dari BulkDataTable
+    total_rows: int().notNull(), // Jumlah total baris data yang diupload
+    processed_rows: int().notNull().default(0), // Jumlah baris yang berhasil diproses
+    failed_rows: int().notNull().default(0), // Jumlah baris yang gagal diproses
+    shared_invoice_number: varchar({ length: 255 }), // Shared invoice number untuk batch ini (BULK-GURU-xxx)
+    invoice_id: bigint({ mode: "number", unsigned: true }), // Relasi ke invoices table
+    status: bulkDataStatusEnum.notNull().default("submitted"), // Status processing bulk data
+    notes: text(), // Catatan tambahan atau keterangan
+    error_message: text(), // Pesan error jika status failed
+    created_at: timestamp().defaultNow(),
+    updated_at: timestamp().defaultNow().onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "bulk_data_logs_id" }),
+    index("bulk_data_logs_user_id_index").on(table.user_id),
+    index("bulk_data_logs_status_index").on(table.status),
+    index("bulk_data_logs_shared_invoice_number_index").on(table.shared_invoice_number),
+    index("bulk_data_logs_invoice_id_index").on(table.invoice_id),
+    index("bulk_data_logs_created_at_index").on(table.created_at),
+  ]
+);
+
+// Referral codes table for managing referral program (simplified)
+export const referral_codes = mysqlTable(
+  "referral_codes",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    code: varchar({ length: 50 }).notNull(),
+    description: text(),
+    created_at: timestamp().defaultNow(),
+    updated_at: timestamp().defaultNow().onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "referral_codes_id" }),
+    unique("referral_codes_code_unique").on(table.code),
+  ]
+);
+
+
+// Product-referral code relationship table
+export const product_referral_codes = mysqlTable(
+  "product_referral_codes",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    referral_code_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    product_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    created_at: timestamp().defaultNow(),
+    created_by: bigint({ mode: "number", unsigned: true }), // Admin who created the relationship
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "product_referral_codes_id" }),
+    unique("product_referral_codes_referral_id_product_id_unique").on(
+      table.referral_code_id,
+      table.product_id
+    ),
+    index("product_referral_codes_referral_code_id_index").on(table.referral_code_id),
+    index("product_referral_codes_product_id_index").on(table.product_id),
+    index("product_referral_codes_created_by_index").on(table.created_by),
+  ]
+);
+
+export const recruiter_jobs = mysqlTable(
+  "recruiter_jobs",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    position_name: varchar({ length: 255 }).notNull(),
+    jobdesk: text().notNull(),
+    location: varchar({ length: 255 }).notNull(),
+    employment_type: employmentTypeEnum.default("fulltime").notNull(),
+    location_type: recruiterLocationTypeEnum.default("onsite").notNull(),
+    min_experience_years: int().default(0).notNull(),
+    salary_min: decimal({ precision: 12, scale: 2 }),
+    salary_max: decimal({ precision: 12, scale: 2 }),
+    required_skills: longtext(), // JSON array of {skill, level, must_have, weight}
+    nice_to_have_skills: longtext(), // JSON array of {skill, level, weight}
+    created_at: timestamp().defaultNow(),
+    updated_at: timestamp().defaultNow().onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "recruiter_jobs_id" }),
+    index("recruiter_jobs_location_index").on(table.location),
+    index("recruiter_jobs_created_at_index").on(table.created_at),
+    index("recruiter_jobs_employment_type_index").on(table.employment_type),
+  ]
+);
+
+export const recruiter_candidates = mysqlTable(
+  "recruiter_candidates",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    recruiter_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    nik: varchar({ length: 100 }).notNull(),
+    email: varchar({ length: 255 }),
+    phone: varchar({ length: 50 }),
+    domicile: varchar({ length: 255 }).notNull(),
+    current_title: varchar({ length: 255 }),
+    current_company: varchar({ length: 255 }),
+    experience_years: int().default(0).notNull(),
+    notice_period_days: int().default(0).notNull(),
+    expected_salary_min: decimal({ precision: 12, scale: 2 }),
+    expected_salary_max: decimal({ precision: 12, scale: 2 }),
+    availability_date: date(),
+    cv_url: varchar({ length: 255 }),
+    cv_file_type: varchar({ length: 50 }),
+    cv_file_size_kb: int(),
+    cv_checksum: varchar({ length: 255 }),
+    parsed_text: longtext(),
+    parsed_at: datetime(),
+    parsing_status: parsingStatusEnum.default("pending").notNull(),
+    parsing_error: text(),
+    education_level: varchar({ length: 100 }),
+    last_education_major: varchar({ length: 255 }),
+    birth_date: date(),
+    gender: varchar({ length: 20 }),
+    linkedin_url: varchar({ length: 255 }),
+    portfolio_url: varchar({ length: 255 }),
+    languages: longtext(), // JSON array
+    candidate_source: varchar({ length: 100 }),
+    tags: longtext(), // JSON array of strings
+    created_at: timestamp().defaultNow(),
+    updated_at: timestamp().defaultNow().onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "recruiter_candidates_id" }),
+    index("recruiter_candidates_recruiter_id_index").on(table.recruiter_id),
+    index("recruiter_candidates_nik_index").on(table.nik),
+    index("recruiter_candidates_email_index").on(table.email),
+    index("recruiter_candidates_phone_index").on(table.phone),
+    index("recruiter_candidates_parsing_status_index").on(table.parsing_status),
+    index("recruiter_candidates_availability_date_index").on(table.availability_date),
+  ]
+);
+
+export const recruiter_candidate_skills = mysqlTable(
+  "recruiter_candidate_skills",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    candidate_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    skill: varchar({ length: 255 }).notNull(),
+    level: varchar({ length: 50 }),
+    years: int().default(0).notNull(),
+    is_primary: tinyint().default(0).notNull(),
+    created_at: timestamp().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "recruiter_candidate_skills_id" }),
+    index("recruiter_candidate_skills_candidate_id_index").on(table.candidate_id),
+    index("recruiter_candidate_skills_skill_index").on(table.skill),
+  ]
+);
+
+export const recruiter_candidate_experiences = mysqlTable(
+  "recruiter_candidate_experiences",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    candidate_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    company: varchar({ length: 255 }).notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    start_date: date(),
+    end_date: date(),
+    location: varchar({ length: 255 }),
+    description: text(),
+    industry: varchar({ length: 100 }),
+    created_at: timestamp().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "recruiter_candidate_experiences_id" }),
+    index("recruiter_candidate_experiences_candidate_id_index").on(table.candidate_id),
+    index("recruiter_candidate_experiences_title_index").on(table.title),
+    index("recruiter_candidate_experiences_company_index").on(table.company),
+  ]
+);
+
+export const recruiter_candidate_educations = mysqlTable(
+  "recruiter_candidate_educations",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    candidate_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    institution: varchar({ length: 255 }).notNull(),
+    degree: varchar({ length: 100 }),
+    major: varchar({ length: 255 }),
+    graduation_year: int(),
+    gpa: decimal({ precision: 3, scale: 2 }),
+    created_at: timestamp().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "recruiter_candidate_educations_id" }),
+    index("recruiter_candidate_educations_candidate_id_index").on(table.candidate_id),
+    index("recruiter_candidate_educations_graduation_year_index").on(table.graduation_year),
+  ]
+);
+
+export const recruiter_candidate_languages = mysqlTable(
+  "recruiter_candidate_languages",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    candidate_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    language: varchar({ length: 100 }).notNull(),
+    proficiency: varchar({ length: 50 }),
+    created_at: timestamp().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "recruiter_candidate_languages_id" }),
+    index("recruiter_candidate_languages_candidate_id_index").on(table.candidate_id),
+    index("recruiter_candidate_languages_language_index").on(table.language),
+  ]
+);
+
+export const recruiter_candidate_documents = mysqlTable(
+  "recruiter_candidate_documents",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    candidate_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    file_url: varchar({ length: 255 }),
+    storage_path: varchar({ length: 255 }),
+    file_type: varchar({ length: 50 }),
+    file_size_kb: int(),
+    checksum: varchar({ length: 255 }),
+    uploaded_at: timestamp().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "recruiter_candidate_documents_id" }),
+    index("recruiter_candidate_documents_candidate_id_index").on(table.candidate_id),
+  ]
+);
+
+export const recruiter_job_questions = mysqlTable(
+  "recruiter_job_questions",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    job_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    question: text().notNull(),
+    type: questionTypeEnum.default("yesno").notNull(),
+    is_knockout: tinyint().default(0).notNull(),
+    weight: int().default(1).notNull(),
+    created_at: timestamp().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "recruiter_job_questions_id" }),
+    index("recruiter_job_questions_job_id_index").on(table.job_id),
+    index("recruiter_job_questions_is_knockout_index").on(table.is_knockout),
+  ]
+);
+
+export const recruiter_candidate_answers = mysqlTable(
+  "recruiter_candidate_answers",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    candidate_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    question_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    answer: text(),
+    is_knockout_failed: tinyint().default(0).notNull(),
+    scored_at: timestamp().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "recruiter_candidate_answers_id" }),
+    index("recruiter_candidate_answers_candidate_id_index").on(table.candidate_id),
+    index("recruiter_candidate_answers_question_id_index").on(table.question_id),
+  ]
+);
+
+export const recruiter_candidate_matches = mysqlTable(
+  "recruiter_candidate_matches",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    job_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    candidate_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    match_score: int().default(0).notNull(),
+    matched_skills: longtext(), // JSON array
+    missing_skills: longtext(), // JSON array
+    keyword_hits: longtext(), // JSON array
+    knockout_failed_count: int().default(0).notNull(),
+    rerun_at: datetime(),
+    created_at: timestamp().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "recruiter_candidate_matches_id" }),
+    index("recruiter_candidate_matches_job_id_index").on(table.job_id),
+    index("recruiter_candidate_matches_candidate_id_index").on(table.candidate_id),
+    index("recruiter_candidate_matches_match_score_index").on(table.match_score),
+  ]
+);
+
+export const pages = mysqlTable(
+  "pages",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    slug: varchar({ length: 255 }).notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    blocks: longtext().notNull(), // JSON array of page blocks
+    is_published: tinyint().notNull().default(0),
+    created_at: timestamp().defaultNow(),
+    updated_at: timestamp().defaultNow().onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "pages_id" }),
+    unique("pages_slug_unique").on(table.slug),
+    index("pages_is_published_index").on(table.is_published),
+  ]
+);
+
+export const collective_forms = mysqlTable(
+  "collective_forms",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    slug: varchar({ length: 255 }).notNull(),
+    created_at: timestamp().defaultNow(),
+    updated_at: timestamp().defaultNow().onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "collective_forms_id" }),
+    unique("collective_forms_slug_unique").on(table.slug),
+  ]
+);
+
+export const collective_form_submission = mysqlTable(
+  "collective_form_submission",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    collective_form_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    submission: longtext().notNull(),
+    status: varchar({ length: 50 }).default("submitted").notNull(),
+    created_at: timestamp().defaultNow(),
+    updated_at: timestamp().defaultNow().onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "collective_form_submission_id" }),
+    index("collective_form_submission_collective_form_id_index").on(table.collective_form_id),
+  ]
+);
+
+export const midtransWebhooks = mysqlTable(
+  "midtrans_webhooks",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    received_at: timestamp().notNull(),          // isi dari code (new Date())
+    order_id: varchar({ length: 255 }).notNull(),
+    transaction_status: varchar({ length: 50 }).notNull(),
+    transaction_id: varchar({ length: 100 }).notNull(),
+    payment_type: varchar({ length: 50 }).notNull(),
+    gross_amount: int().notNull(),               // simpan sebagai integer (e.g., 15557)
+    signature_key_masked: varchar({ length: 255 }), // simpan versi termask (optional)
+    raw_json: text(),                            // simpan payload mentah (JSON.stringify)
+  },
+  (t) => [
+    index("midtrans_webhooks_order_idx").on(t.order_id),
+    index("midtrans_webhooks_txid_idx").on(t.transaction_id),
+    index("midtrans_webhooks_time_idx").on(t.received_at),
+    primaryKey({ columns: [t.id], name: "midtrans_webhooks_pk" }),
+  ]
+);
+
+// Guru Mitra: Rekening
+export const guru_bank_accounts = mysqlTable(
+  "guru_bank_accounts",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    bank_name: varchar({ length: 255 }).notNull(),
+    account_number: varchar({ length: 255 }).notNull(),
+    account_holder: varchar({ length: 255 }).notNull(),
+    verified_at: timestamp(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "guru_bank_accounts_id" }),
+    index("guru_bank_accounts_user_id_idx").on(table.user_id),
+  ]
+);
+
+// Guru Mitra: Member card
+export const guru_member_cards = mysqlTable(
+  "guru_member_cards",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    card_number: varchar({ length: 255 }).notNull(),
+    status: varchar({ length: 50 }).default("active"),
+    issued_at: timestamp(),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "guru_member_cards_id" }),
+    index("guru_member_cards_user_id_idx").on(table.user_id),
+    index("guru_member_cards_card_number_idx").on(table.card_number),
+  ]
+);
+
+// Guru Mitra: Pengajuan withdraw reward
+export const guru_withdraw_requests = mysqlTable(
+  "guru_withdraw_requests",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    competition_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    type: varchar({ length: 50 }).notNull(), // participants | orders
+    milestone_value: int().notNull(),
+    amount: int().notNull(),
+    currency: varchar({ length: 10 }).default("IDR"),
+    status: varchar({ length: 50 }).default("pending"),
+    requested_at: timestamp(),
+    approved_at: timestamp(),
+    paid_at: timestamp(),
+    admin_notes: text(),
+    admin_id: bigint({ mode: "number", unsigned: true }),
+    bank_name: varchar({ length: 255 }),
+    account_number: varchar({ length: 255 }),
+    account_holder: varchar({ length: 255 }),
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "guru_withdraw_requests_id" }),
+    index("guru_withdraw_requests_user_idx").on(table.user_id),
+    index("guru_withdraw_requests_comp_idx").on(table.competition_id),
+    index("guru_withdraw_requests_status_idx").on(table.status),
+  ]
+);
+
+export const collectiveOrdering = mysqlTable(
+  "collective_ordering",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+
+    // Data pemesan (penanggung jawab)
+    nama_pemesan: varchar({ length: 255 }).notNull(),
+    email_pemesan: varchar({ length: 255 }).notNull(),
+    hp_pemesan: varchar({ length: 50 }).notNull(),
+    alamat_tujuan: varchar({ length: 500 }).notNull(),
+    provinsi: varchar({ length: 255 }).notNull(),
+    kabupaten: varchar({ length: 255 }).notNull(),
+    kecamatan: varchar({ length: 255 }).notNull(),
+    kode_pos: varchar({ length: 20 }).notNull(),
+
+    // Data pengiriman / ongkir
+    asal_city_id: int().default(501), // Kota Medan
+    tujuan_city_id: int(), // dari API binderbyte
+    berat_gram: int(), // total berat kiriman
+
+    // Ringkasan harga
+    subtotal_produk: int(), // total sebelum diskon
+    potongan_diskon: int(), // potongan 10%
+    ongkir: int(), // ongkir JNE
+    total_bayar: int(), // grand total
+
+    // Semua baris peserta (nama, sekolah, kompetisi, produk, jumlah, medali, peringkat, subtotal per baris)
+    // Simpan sebagai JSON string
+    participants_json: text("participants_json").notNull(),
+
+
+    created_at: timestamp(),
+    updated_at: timestamp(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "collective_ordering_id" }),
+  ]
+);
+
+export const chat_tickets = mysqlTable(
+  "chat_tickets",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    competition_id: bigint({ mode: "number", unsigned: true }),
+    topic: chatTopicEnum.notNull(),
+    summary: text().notNull(),
+    status: chatStatusEnum.default("Baru").notNull(),
+    last_message_id: bigint({ mode: "number", unsigned: true }),
+    last_message_at: datetime().default(sql`now()`).notNull(),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp().default(sql`now()`).onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "chat_tickets_id" }),
+    index("chat_tickets_user_last_idx").on(table.user_id, table.last_message_at),
+    index("chat_tickets_comp_status_idx").on(
+      table.competition_id,
+      table.status,
+      table.last_message_at
+    ),
+    index("chat_tickets_status_idx").on(table.status),
+  ]
+);
+
+export const chat_messages = mysqlTable(
+  "chat_messages",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    ticket_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    sender_type: chatSenderTypeEnum.notNull(),
+    sender_user_id: bigint({ mode: "number", unsigned: true }),
+    sender_admin_id: bigint({ mode: "number", unsigned: true }),
+    text: text().notNull(),
+    read_at: datetime(),
+    created_at: timestamp().default(sql`now()`),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "chat_messages_id" }),
+    index("chat_messages_ticket_created_idx").on(
+      table.ticket_id,
+      table.created_at
+    ),
+    index("chat_messages_sender_idx").on(table.sender_type),
+  ]
+);
+
+export const chat_device_tokens = mysqlTable(
+  "chat_device_tokens",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }),
+    admin_id: bigint({ mode: "number", unsigned: true }),
+    token: varchar({ length: 512 }).notNull(),
+    platform: devicePlatformEnum.notNull(),
+    app: varchar({ length: 64 }),
+    last_seen_at: datetime(),
+    revoked_at: datetime(),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp().default(sql`now()`).onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "chat_device_tokens_id" }),
+    unique("chat_device_tokens_token_unique").on(table.token),
+    index("chat_device_tokens_user_idx").on(table.user_id, table.last_seen_at),
+    index("chat_device_tokens_admin_idx").on(table.admin_id, table.last_seen_at),
+  ]
+);
+
+export const chat_ticket_reads = mysqlTable(
+  "chat_ticket_reads",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    ticket_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    reader_type: chatSenderTypeEnum.notNull(),
+    reader_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    last_message_id: bigint({ mode: "number", unsigned: true }),
+    last_read_at: datetime().default(sql`now()`),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "chat_ticket_reads_id" }),
+    unique("chat_ticket_reads_reader_unique").on(
+      table.ticket_id,
+      table.reader_type,
+      table.reader_id
+    ),
+    index("chat_ticket_reads_ticket_idx").on(table.ticket_id, table.last_read_at),
+    index("chat_ticket_reads_reader_idx").on(table.reader_type, table.reader_id),
+  ]
+);
+
+export const chat_broadcasts = mysqlTable(
+  "chat_broadcasts",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    admin_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    body: text().notNull(),
+    data_json: text(),
+    target_scope: broadcastScopeEnum.notNull(),
+    competition_id: bigint({ mode: "number", unsigned: true }),
+    status: broadcastStatusEnum.default("draft").notNull(),
+    scheduled_at: datetime(),
+    sent_at: datetime(),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp().default(sql`now()`).onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "chat_broadcasts_id" }),
+    index("chat_broadcasts_status_sched_idx").on(table.status, table.scheduled_at),
+    index("chat_broadcasts_admin_idx").on(table.admin_id, table.created_at),
+  ]
+);
+
+export const chat_broadcast_targets = mysqlTable(
+  "chat_broadcast_targets",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    broadcast_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }),
+    ticket_id: bigint({ mode: "number", unsigned: true }),
+    status: broadcastTargetStatusEnum.default("pending").notNull(),
+    error: text(),
+    sent_at: datetime(),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp().default(sql`now()`).onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "chat_broadcast_targets_id" }),
+    index("chat_broadcast_targets_broadcast_idx").on(
+      table.broadcast_id,
+      table.status
+    ),
+    index("chat_broadcast_targets_user_idx").on(table.user_id),
+    index("chat_broadcast_targets_ticket_idx").on(table.ticket_id),
+  ]
+);
+
+export const chat_reminders = mysqlTable(
+  "chat_reminders",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    ticket_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    kind: reminderKindEnum.notNull(),
+    threshold_minutes: int().notNull(),
+    status: reminderStatusEnum.default("scheduled").notNull(),
+    scheduled_at: datetime().notNull(),
+    sent_at: datetime(),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp().default(sql`now()`).onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "chat_reminders_id" }),
+    index("chat_reminders_kind_sched_idx").on(table.kind, table.status, table.scheduled_at),
+    index("chat_reminders_ticket_idx").on(table.ticket_id, table.kind),
+  ]
+);
+
+export const offline_result_uploads = mysqlTable(
+  "offline_result_uploads",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_id: int().notNull(),
+    study_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    uploaded_by: bigint({ mode: "number", unsigned: true }),
+    original_filename: varchar({ length: 255 }).notNull(),
+    status: offlineUploadStatusEnum.default("uploaded").notNull(),
+    total_rows: int(),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp().default(sql`now()`).onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "offline_result_uploads_id" }),
+    index("offline_result_uploads_comp_idx").on(table.competition_id),
+    index("offline_result_uploads_study_idx").on(table.study_id),
+  ]
+);
+
+export const offline_result_rows_raw = mysqlTable(
+  "offline_result_rows_raw",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    upload_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    row_number: int().notNull(),
+    nomor_peserta_raw: varchar({ length: 255 }),
+    nama_raw: varchar({ length: 255 }),
+    benar: int(),
+    salah: int(),
+    kosong: int(),
+    nilai: decimal({ precision: 10, scale: 2 }),
+    keterangan: varchar({ length: 255 }),
+    parse_notes: text(),
+    created_at: timestamp().default(sql`now()`),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "offline_result_rows_raw_id" }),
+    index("offline_result_rows_upload_idx").on(table.upload_id),
+  ]
+);
+
+export const offline_result_matches = mysqlTable(
+  "offline_result_matches",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    raw_row_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    competition_id: int().notNull(),
+    study_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    transaction_id: bigint({ mode: "number", unsigned: true }),
+    user_id: bigint({ mode: "number", unsigned: true }),
+    match_score: int(),
+    match_method: varchar({ length: 50 }),
+    status: offlineMatchStatusEnum.default("unmatched").notNull(),
+    manual_notes: text(),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp().default(sql`now()`).onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "offline_result_matches_id" }),
+    index("offline_result_matches_raw_idx").on(table.raw_row_id),
+    index("offline_result_matches_comp_study_idx").on(
+      table.competition_id,
+      table.study_id
+    ),
+  ]
+);
+
+export const offline_result_scores = mysqlTable(
+  "offline_result_scores",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_id: int().notNull(),
+    study_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    user_id: bigint({ mode: "number", unsigned: true }),
+    transaction_id: bigint({ mode: "number", unsigned: true }),
+    nilai: decimal({ precision: 10, scale: 2 }),
+    ranking: int(),
+    medali: offlineMedalEnum.default("none").notNull(),
+    finalized: tinyint().default(0).notNull(),
+    finalized_at: timestamp(),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp().default(sql`now()`).onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "offline_result_scores_id" }),
+    index("offline_result_scores_comp_idx").on(table.competition_id),
+    index("offline_result_scores_study_idx").on(table.study_id),
+    index("offline_result_scores_user_idx").on(table.user_id),
+  ]
+);
+
+export const offline_result_print_configs = mysqlTable(
+  "offline_result_print_configs",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    competition_id: int().notNull(),
+    study_id: bigint({ mode: "number", unsigned: true }),
+    template_id: varchar({ length: 255 }),
+    signature_name: varchar({ length: 255 }),
+    signature_title: varchar({ length: 255 }),
+    signature_image: varchar({ length: 255 }),
+    seal_image: varchar({ length: 255 }),
+    background_image: varchar({ length: 255 }),
+    font_family: varchar({ length: 100 }),
+    margin_top: int(),
+    margin_left: int(),
+    margin_right: int(),
+    margin_bottom: int(),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp().default(sql`now()`).onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "offline_result_print_configs_id" }),
+    index("offline_result_print_configs_comp_idx").on(table.competition_id),
+    index("offline_result_print_configs_study_idx").on(table.study_id),
+  ]
+);
+
+export const offline_result_pdfs = mysqlTable(
+  "offline_result_pdfs",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    score_id: bigint({ mode: "number", unsigned: true }).notNull(),
+    pdf_path: varchar({ length: 255 }).notNull(),
+    generated_at: timestamp().default(sql`now()`),
+    generated_by: bigint({ mode: "number", unsigned: true }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "offline_result_pdfs_id" }),
+    index("offline_result_pdfs_score_idx").on(table.score_id),
+  ]
+);
+
+const voucherDiscountType = mysqlEnum("voucher_discount_type", ["percent", "flat"]);
+
+export const vouchers = mysqlTable(
+  "vouchers",
+  {
+    id: bigint({ mode: "number", unsigned: true }).autoincrement().notNull(),
+    code: varchar({ length: 100 }).notNull(),
+    discount_type: voucherDiscountType.notNull(),
+    discount_value: decimal({ precision: 12, scale: 2 }).notNull(),
+    max_usage: int().default(0),
+    usage_count: int().default(0).notNull(),
+    starts_at: timestamp(),
+    ends_at: timestamp(),
+    is_active: tinyint().default(1).notNull(),
+    min_order_amount: decimal({ precision: 12, scale: 2 }).default(sql`0`),
+    applies_to_competition_id: bigint({ mode: "number", unsigned: true }),
+    note: text(),
+    created_by: bigint({ mode: "number", unsigned: true }),
+    created_at: timestamp().default(sql`now()`),
+    updated_at: timestamp().default(sql`now()`).onUpdateNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id], name: "vouchers_id" }),
+    unique("vouchers_code_unique").on(table.code),
+    index("vouchers_competition_idx").on(table.applies_to_competition_id),
+  ]
+);

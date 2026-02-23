@@ -1,0 +1,138 @@
+import { Router } from 'express'
+import { authRequired } from '../auth.js'
+import { query, pool } from '../db.js'
+import { sendPush } from '../fcm.js'
+
+const router = Router()
+
+// GET /chat/tickets (user) or /admin/chat/tickets (admin)
+router.get('/chat/tickets', authRequired(), async (req, res) => {
+  const userId = req.user.id
+  const rows = await query(
+    `SELECT t.id,
+            t.chat_topic   AS topic,
+            t.summary,
+            t.chat_status  AS status,
+            t.competition_id,
+            t.last_message_at AS lastMessageAt,
+            c.title AS competitionTitle
+     FROM chat_tickets t
+     LEFT JOIN competitions c ON c.id = t.competition_id
+     WHERE t.user_id = ?
+     ORDER BY t.last_message_at DESC
+     LIMIT 200`,
+    [userId]
+  )
+  res.json({ tickets: rows })
+})
+
+router.get('/admin/chat/tickets', authRequired('admin'), async (req, res) => {
+  const { status, competition_id } = req.query
+  const params = []
+  let sql = `SELECT t.id,
+                    t.chat_topic   AS topic,
+                    t.summary,
+                    t.chat_status  AS status,
+                    t.competition_id,
+                    t.last_message_at AS lastMessageAt,
+                    c.title AS competitionTitle,
+                    t.user_id
+             FROM chat_tickets t
+             LEFT JOIN competitions c ON c.id = t.competition_id`
+  const clauses = []
+  if (status) {
+    clauses.push('t.chat_status = ?')
+    params.push(status)
+  }
+  if (competition_id) {
+    clauses.push('t.competition_id = ?')
+    params.push(competition_id)
+  }
+  if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ')
+  sql += ' ORDER BY t.last_message_at DESC LIMIT 500'
+  const rows = await query(sql, params)
+  res.json({ tickets: rows })
+})
+
+router.post('/chat/tickets', authRequired(), async (req, res) => {
+  const { competition_id, topic, summary } = req.body || {}
+  if (!topic || !summary) return res.status(400).json({ message: 'Topic dan summary wajib' })
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+    const [insertTicket] = await conn.execute(
+      'INSERT INTO chat_tickets (user_id, competition_id, chat_topic, summary, chat_status, last_message_at) VALUES (?, ?, ?, ?, ?, NOW())',
+      [req.user.id, competition_id || null, topic, summary, 'Baru']
+    )
+    const ticketId = insertTicket.insertId
+    // first message equals summary
+    const [insertMsg] = await conn.execute(
+      'INSERT INTO chat_messages (ticket_id, chat_sender_type, sender_user_id, text) VALUES (?, ?, ?, ?)',
+      [ticketId, 'user', req.user.id, summary]
+    )
+    const firstMessageId = insertMsg.insertId
+    await conn.execute(
+      'UPDATE chat_tickets SET last_message_id = ?, last_message_at = NOW() WHERE id = ?',
+      [firstMessageId, ticketId]
+    )
+    await conn.commit()
+    const [ticket] = await query(
+      `SELECT t.id,
+              t.chat_topic AS topic,
+              t.summary,
+              t.chat_status AS status,
+              t.competition_id,
+              t.last_message_at AS lastMessageAt,
+              COALESCE(c.title, 'Tanpa Kompetisi') AS competitionTitle,
+              t.last_message_id AS lastMessageId
+       FROM chat_tickets t
+       LEFT JOIN competitions c ON c.id = t.competition_id
+       WHERE t.id = ?`,
+      [ticketId]
+    )
+    res.status(201).json({ ticket })
+  } catch (err) {
+    await conn.rollback()
+    throw err
+  } finally {
+    conn.release()
+  }
+})
+
+router.get('/chat/tickets/:id/messages', authRequired(), async (req, res) => {
+  const ticketId = req.params.id
+  const rows = await query(
+    `SELECT id,
+            chat_sender_type AS senderType,
+            text,
+            created_at AS createdAt
+     FROM chat_messages
+     WHERE ticket_id = ?
+     ORDER BY created_at ASC
+     LIMIT 1000`,
+    [ticketId]
+  )
+  res.json({ messages: rows })
+})
+
+router.post('/chat/tickets/:id/messages', authRequired(), async (req, res) => {
+  const ticketId = req.params.id
+  const { text } = req.body || {}
+  if (!text) return res.status(400).json({ message: 'Text wajib' })
+  const [insertRes] = await pool.execute(
+    'INSERT INTO chat_messages (ticket_id, chat_sender_type, sender_user_id, text) VALUES (?, ?, ?, ?)',
+    [ticketId, 'user', req.user.id, text]
+  )
+  const messageId = insertRes.insertId
+  await pool.execute('UPDATE chat_tickets SET last_message_at = NOW(), last_message_id = ? WHERE id = ?', [
+    messageId,
+    ticketId,
+  ])
+  const [message] = await query(
+    'SELECT id, chat_sender_type AS senderType, text, created_at AS createdAt FROM chat_messages WHERE id = ?',
+    [messageId]
+  )
+  res.status(201).json({ ok: true, message })
+})
+
+export default router

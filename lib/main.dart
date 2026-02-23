@@ -4,7 +4,9 @@ import 'package:dio/dio.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'http_adapter.dart' as http_adapter;
+import 'dart:async';
 import 'dart:convert';
 
 /// Simple API client to hit the POSI web backend and keep session cookies.
@@ -38,8 +40,11 @@ class ApiClient {
   late final Dio _dio;
   final String _baseUrl;
   late final String _baseUrlResolved;
+  String? _authToken;
+  IO.Socket? _socket;
 
   String get baseUrl => _baseUrlResolved;
+  String? get authToken => _authToken;
 
   Future<List<TicketData>> fetchTickets() async {
     final res = await _dio.get<Map<String, dynamic>>('/api/chat/tickets',
@@ -137,7 +142,20 @@ class ApiClient {
 
       final code = res.statusCode ?? 0;
       if (code >= 400) {
-        return LoginResult(false, 'Login gagal (${res.statusCode})');
+        final msgFromServer = data != null ? data['message'] as String? : null;
+        final msg = msgFromServer?.isNotEmpty == true
+            ? msgFromServer
+            : (code == 401
+                ? 'Email atau password salah'
+                : 'Login gagal (${res.statusCode})');
+        return LoginResult(false, msg);
+      }
+
+      // simpan token jika tersedia
+      final token = data?['token'] as String?;
+      if (token != null) {
+        _authToken = token;
+        _dio.options.headers['Authorization'] = 'Bearer $token';
       }
 
       if (data != null && data['errors'] != null) {
@@ -154,6 +172,18 @@ class ApiClient {
       return LoginResult(false, 'Tidak bisa terhubung ke server');
     }
   }
+
+  Future<void> logout() async {
+    try {
+      await _dio.post('/logout');
+    } catch (_) {
+      // ignore
+    }
+    _authToken = null;
+    _dio.options.headers.remove('Authorization');
+    _socket?.disconnect();
+    _socket = null;
+  }
   Future<List<CompetitionOption>> fetchCompetitions() async {
     final res = await _dio.get<Map<String, dynamic>>('/api/competitions');
     if (res.statusCode != null && res.statusCode! >= 400) {
@@ -165,6 +195,47 @@ class ApiClient {
     return list
         .map((e) => CompetitionOption.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  // -------- Socket.IO --------
+  void ensureSocket({
+    void Function(ChatMessageData message, int ticketId)? onMessage,
+  }) {
+    if (_socket != null) return;
+    final token = _authToken;
+    final opts = IO.OptionBuilder()
+        .setTransports(['websocket'])
+        .enableForceNew()
+        .enableAutoConnect()
+        .setExtraHeaders(token != null ? {'Authorization': 'Bearer $token'} : {})
+        .setQuery({
+          'ts': DateTime.now().millisecondsSinceEpoch.toString(),
+        })
+        .build();
+    _socket = IO.io(_baseUrlResolved, opts);
+
+    _socket!.onConnect((_) => debugPrint('Socket connected'));
+    _socket!.onDisconnect((_) => debugPrint('Socket disconnected'));
+    _socket!.onError((err) => debugPrint('Socket error: $err'));
+
+    _socket!.on('message:new', (data) {
+      if (data is Map) {
+        final message =
+            ChatMessageData.fromJson(data.cast<String, dynamic>());
+        final ticketId = data['ticket_id'] as int? ??
+            data['ticketId'] as int? ??
+            0;
+        if (onMessage != null) onMessage(message, ticketId);
+      }
+    });
+  }
+
+  void joinTicketRoom(int ticketId) {
+    _socket?.emit('join-ticket', ticketId);
+  }
+
+  void sendSocketMessage(int ticketId, String text) {
+    _socket?.emit('message:send', {'ticketId': ticketId, 'text': text});
   }
 }
 
@@ -421,7 +492,12 @@ class _RootState extends State<_Root> {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 320),
       child: _loggedIn
-          ? MainShell(onLogout: () => setState(() => _loggedIn = false))
+          ? MainShell(
+              onLogout: () async {
+                await apiClient.logout();
+                if (mounted) setState(() => _loggedIn = false);
+              },
+            )
           : LoginScreen(onLogin: () => setState(() => _loggedIn = true)),
     );
   }
@@ -461,18 +537,45 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      await apiClient.login(email, password);
+      final result = await apiClient.login(email, password);
       if (!mounted) return;
-      // Anggap berhasil untuk status 2xx/3xx; backend sudah log sukses.
-      setState(() {
-        _loading = false;
-        _error = null;
-      });
-      widget.onLogin();
+      if (result.ok) {
+        setState(() {
+          _loading = false;
+          _error = null;
+        });
+        widget.onLogin();
+      } else {
+        setState(() {
+          _error = result.message ?? 'Email atau password salah';
+          _loading = false;
+        });
+      }
     } on DioException catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'Gagal login: ${e.message}';
+        String msg = 'Gagal login';
+        if (e.response != null) {
+          final status = e.response?.statusCode;
+          final data = e.response?.data;
+          final serverMsg = (data is Map && data['message'] is String)
+              ? data['message'] as String
+              : null;
+          if (serverMsg != null && serverMsg.isNotEmpty) {
+            msg = serverMsg;
+          } else if (status == 401) {
+            msg = 'Email atau password salah';
+          } else if (status != null) {
+            msg = 'Server error ($status)';
+          }
+        } else if (e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.receiveTimeout ||
+            e.type == DioExceptionType.sendTimeout) {
+          msg = 'Server sibuk / timeout, coba lagi';
+        } else {
+          msg = e.message ?? msg;
+        }
+        _error = msg;
         _loading = false;
       });
     } catch (e) {
@@ -727,60 +830,173 @@ class ChatTab extends StatefulWidget {
 class _ChatTabState extends State<ChatTab> {
   List<TicketData> _tickets = [];
   final _messages = <int, List<ChatMessageData>>{};
+  String _ticketsSig = '';
+  final _messageSigs = <int, String>{};
   int? _activeId;
   bool _showDetail = false;
   final _controller = TextEditingController();
+  final _msgScroll = ScrollController();
   final _newSummaryCtrl = TextEditingController();
   String _newTopic = 'Pendaftaran';
   bool _loadingTickets = true;
   bool _loadingMessages = false;
   bool _sending = false;
+  Timer? _ticketsTimer;
+  Timer? _messagesTimer;
 
   @override
   void dispose() {
     _controller.dispose();
+    _msgScroll.dispose();
     _newSummaryCtrl.dispose();
+    _ticketsTimer?.cancel();
+    _messagesTimer?.cancel();
     super.dispose();
   }
 
   @override
   void initState() {
     super.initState();
-    _loadTickets();
+    _loadTickets().whenComplete(_startSocket);
   }
 
-  Future<void> _loadTickets() async {
-    setState(() => _loadingTickets = true);
+  void _startSocket() {
+    apiClient.ensureSocket(onMessage: (msg, ticketId) {
+      setState(() {
+        final list = _messages[ticketId] ?? [];
+        _messages[ticketId] = [...list, msg];
+        _messageSigs[ticketId] = _sigMessages(_messages[ticketId]!);
+        _tickets = _tickets
+            .map((t) => t.id == ticketId
+                ? TicketData(
+                    id: t.id,
+                    topic: t.topic,
+                    summary: t.summary,
+                    status: t.status,
+                    competitionTitle: t.competitionTitle,
+                    lastMessage: msg.text,
+                    lastMessageAt: msg.createdAt,
+                  )
+                : t)
+            .toList();
+      });
+      _maybeScrollToBottom();
+    });
+  }
+
+  Future<void> _loadTickets({bool withLoading = true}) async {
+    if (withLoading) setState(() => _loadingTickets = true);
     try {
       final res = await apiClient.fetchTickets();
-      setState(() {
-        _tickets = res;
-        if (_tickets.isNotEmpty) {
-          _activeId ??= _tickets.first.id;
-        }
-      });
+      final newSig = _sigTickets(res);
+      if (newSig != _ticketsSig) {
+        setState(() {
+          _tickets = res;
+          _ticketsSig = newSig;
+          if (_tickets.isNotEmpty) {
+            _activeId ??= _tickets.first.id;
+          }
+        });
+      }
       if (_activeId != null) {
         _loadMessages(_activeId!);
       }
     } catch (_) {
       // ignore for now
     } finally {
-      if (mounted) setState(() => _loadingTickets = false);
+      if (mounted && withLoading) setState(() => _loadingTickets = false);
     }
   }
 
-  Future<void> _loadMessages(int ticketId) async {
-    setState(() => _loadingMessages = true);
+  Future<void> _loadMessages(int ticketId, {bool withLoading = true}) async {
+    if (withLoading) setState(() => _loadingMessages = true);
     try {
       final res = await apiClient.fetchMessages(ticketId);
-      setState(() {
-        _messages[ticketId] = res;
-      });
+      final newSig = _sigMessages(res);
+      if (_messageSigs[ticketId] != newSig) {
+        setState(() {
+          _messages[ticketId] = res;
+          _messageSigs[ticketId] = newSig;
+        });
+        _maybeScrollToBottom();
+      }
     } catch (_) {
       // ignore
     } finally {
-      if (mounted) setState(() => _loadingMessages = false);
+      if (mounted && withLoading) setState(() => _loadingMessages = false);
     }
+  }
+
+  void _maybeScrollToBottom() {
+    if (!_msgScroll.hasClients) return;
+    final distanceFromBottom =
+        _msgScroll.position.maxScrollExtent - _msgScroll.position.pixels;
+    // auto-scroll only if user is near bottom (keeps layar stabil saat membaca pesan lama)
+    if (distanceFromBottom < 120) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_msgScroll.hasClients) {
+          _msgScroll.animateTo(
+            _msgScroll.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
+  }
+
+  String _sigTickets(List<TicketData> list) {
+    final buf = StringBuffer(list.length);
+    for (final t in list.take(30)) {
+      buf.write('${t.id}:${t.status}:${t.lastMessageAt ?? ''}|');
+    }
+    return buf.toString();
+  }
+
+  String _sigMessages(List<ChatMessageData> list) {
+    if (list.isEmpty) return '0';
+    final last = list.last;
+    return '${list.length}:${last.id}:${last.createdAt}:${last.senderType}';
+  }
+
+  List<_MessageEntry> _buildMessageEntries(List<ChatMessageData> msgs) {
+    final result = <_MessageEntry>[];
+    String? lastLabel;
+    for (final m in msgs) {
+      final label = _friendlyDate(m.createdAt);
+      if (label != null && label != lastLabel) {
+        result.add(_MessageEntry.date(label));
+        lastLabel = label;
+      }
+      result.add(_MessageEntry.message(m));
+    }
+    return result;
+  }
+
+  String? _friendlyDate(String raw) {
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return null;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final dateOnly = DateTime(dt.year, dt.month, dt.day);
+    final diff = dateOnly.difference(today).inDays;
+    if (diff == 0) return 'Hari ini';
+    if (diff == -1) return 'Kemarin';
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des'
+    ];
+    return '${dt.day.toString().padLeft(2, '0')} ${months[dt.month - 1]} ${dt.year}';
   }
 
   Future<void> _sendMessage() async {
@@ -799,9 +1015,8 @@ class _ChatTabState extends State<ChatTab> {
       _controller.clear();
     });
     try {
-      await apiClient.sendMessage(ticketId, text);
-      // refresh messages to ensure server state
-      await _loadMessages(ticketId);
+      // kirim lewat socket
+      apiClient.sendSocketMessage(ticketId, text);
       setState(() {
         _tickets = _tickets
             .map((t) => t.id == ticketId
@@ -839,6 +1054,7 @@ class _ChatTabState extends State<ChatTab> {
     final msgs = activeTicket == null
         ? <ChatMessageData>[]
         : (_messages[activeTicket.id] ?? []);
+    final entries = _buildMessageEntries(msgs);
 
     return _GradientBackground(
       child: AnimatedSwitcher(
@@ -871,11 +1087,43 @@ class _ChatTabState extends State<ChatTab> {
                                     ? const Center(
                                         child: CircularProgressIndicator())
                                     : ListView.builder(
-                                        itemCount: msgs.length,
+                                        controller: _msgScroll,
+                                        itemCount: entries.length,
                                         reverse: false,
                                         itemBuilder: (_, i) {
-                                          final m = msgs[i];
-                                          final isMe = m.senderType == 'admin';
+                                          final entry = entries[i];
+                                          if (entry.type == _EntryType.date) {
+                                            return Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      vertical: 10),
+                                              child: Center(
+                                                child: Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 6),
+                                                  decoration: BoxDecoration(
+                                                    color:
+                                                        const Color(0xFFEAF2FF),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            12),
+                                                  ),
+                                                  child: Text(entry.label ?? '',
+                                                      style: const TextStyle(
+                                                          color:
+                                                              Color(0xFF526380),
+                                                          fontSize: 12,
+                                                          fontWeight:
+                                                              FontWeight.w600)),
+                                                ),
+                                              ),
+                                            );
+                                          }
+
+                                          final m = entry.message!;
+                                          final isMe = m.senderType == 'user';
                                           final time =
                                               DateTime.tryParse(m.createdAt);
                                           final timeText = time != null
@@ -921,8 +1169,13 @@ class _ChatTabState extends State<ChatTab> {
                                                   Text(
                                                     timeText,
                                                     style: TextStyle(
-                                                      color: Colors.white
-                                                          .withOpacity(0.6),
+                                                      color: isMe
+                                                          ? Colors.white
+                                                              .withOpacity(0.8)
+                                                          : const Color(
+                                                                  0xFF1A2F4D)
+                                                              .withOpacity(
+                                                                  0.6),
                                                       fontSize: 11,
                                                     ),
                                                   ),
@@ -1017,6 +1270,7 @@ class _ChatTabState extends State<ChatTab> {
                                 onTap: () => setState(() {
                                   _activeId = t.id;
                                   _showDetail = true;
+                                  apiClient.joinTicketRoom(t.id);
                                   _loadMessages(t.id);
                                 }),
                               );
@@ -1078,6 +1332,21 @@ class _ChatTabState extends State<ChatTab> {
       // ignore error for now
     }
   }
+}
+
+enum _EntryType { date, message }
+
+class _MessageEntry {
+  _MessageEntry.date(this.label)
+      : type = _EntryType.date,
+        message = null;
+  _MessageEntry.message(this.message)
+      : type = _EntryType.message,
+        label = null;
+
+  final _EntryType type;
+  final String? label;
+  final ChatMessageData? message;
 }
 
 class InfoTab extends StatelessWidget {
