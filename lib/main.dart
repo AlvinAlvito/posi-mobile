@@ -858,6 +858,22 @@ class _ChatTabState extends State<ChatTab> {
   Timer? _ticketsTimer;
   Timer? _messagesTimer;
   ProfileData? _profile;
+  final Set<int> _unreadTickets = {};
+
+  int _tsMillis(String? ts) {
+    if (ts == null || ts.isEmpty) return 0;
+    final dt = DateTime.tryParse(ts);
+    if (dt == null) return 0;
+    return dt.millisecondsSinceEpoch;
+  }
+
+  void _sortTickets() {
+    _tickets.sort((a, b) {
+      final at = _tsMillis(a.lastMessageAt);
+      final bt = _tsMillis(b.lastMessageAt);
+      return bt.compareTo(at);
+    });
+  }
 
   @override
   void dispose() {
@@ -878,9 +894,18 @@ class _ChatTabState extends State<ChatTab> {
 
   void _startSocket() {
     apiClient.ensureSocket(onMessage: (msg, ticketId) {
+      final nowTs = DateTime.now().toIso8601String();
       setState(() {
         final list = _messages[ticketId] ?? [];
-        _messages[ticketId] = [...list, msg];
+        _messages[ticketId] = [
+          ...list,
+          ChatMessageData(
+            id: msg.id,
+            senderType: msg.senderType,
+            text: msg.text,
+            createdAt: msg.createdAt.isNotEmpty ? msg.createdAt : nowTs,
+          )
+        ];
         _messageSigs[ticketId] = _sigMessages(_messages[ticketId]!);
         _tickets = _tickets
             .map((t) => t.id == ticketId
@@ -891,10 +916,14 @@ class _ChatTabState extends State<ChatTab> {
                     status: t.status,
                     competitionTitle: t.competitionTitle,
                     lastMessage: msg.text,
-                    lastMessageAt: msg.createdAt,
+                    lastMessageAt: nowTs,
                   )
                 : t)
             .toList();
+        _sortTickets();
+        if (_activeId != ticketId || !_showDetail) {
+          _unreadTickets.add(ticketId);
+        }
       });
       _maybeScrollToBottom();
     });
@@ -913,6 +942,11 @@ class _ChatTabState extends State<ChatTab> {
     if (withLoading) setState(() => _loadingTickets = true);
     try {
       final res = await apiClient.fetchTickets();
+      res.sort((a, b) {
+        final at = DateTime.tryParse(a.lastMessageAt ?? '')?.millisecondsSinceEpoch ?? 0;
+        final bt = DateTime.tryParse(b.lastMessageAt ?? '')?.millisecondsSinceEpoch ?? 0;
+        return bt.compareTo(at);
+      });
       final newSig = _sigTickets(res);
       if (newSig != _ticketsSig) {
         setState(() {
@@ -922,6 +956,10 @@ class _ChatTabState extends State<ChatTab> {
             _activeId ??= _tickets.first.id;
           }
         });
+        // join semua room agar dapat notifikasi realtime di list
+        for (final t in res) {
+          apiClient.joinTicketRoom(t.id);
+        }
       }
       if (_activeId != null) {
         final currentId = _activeId!;
@@ -981,7 +1019,7 @@ class _ChatTabState extends State<ChatTab> {
 
   String _sigTickets(List<TicketData> list) {
     final buf = StringBuffer(list.length);
-    for (final t in list.take(30)) {
+    for (final t in list.take(50)) {
       buf.write('${t.id}:${t.status}:${t.lastMessageAt ?? ''}|');
     }
     return buf.toString();
@@ -1066,7 +1104,8 @@ class _ChatTabState extends State<ChatTab> {
                     lastMessageAt: now,
                   ))
                 : t)
-        .toList();
+            .toList();
+        _sortTickets();
       });
     } catch (_) {
       // rollback UI if failed
@@ -1311,15 +1350,17 @@ class _ChatTabState extends State<ChatTab> {
                               final t = _tickets[i];
                               return _ChatListItem(
                                 ticket: t,
-                  onTap: () => setState(() {
-                    _activeId = t.id;
-                    _showDetail = true;
-                    apiClient.joinTicketRoom(t.id);
-                    _loadMessages(t.id);
-                    _startMessagesPolling(t.id);
-                  }),
-                              );
-                            },
+                                unread: _unreadTickets.contains(t.id),
+                                onTap: () => setState(() {
+                                  _activeId = t.id;
+                                  _showDetail = true;
+                                  apiClient.joinTicketRoom(t.id);
+                                  _unreadTickets.remove(t.id);
+                              _loadMessages(t.id);
+                              _startMessagesPolling(t.id);
+                            }),
+                      );
+                    },
                             separatorBuilder: (_, __) =>
                                 const SizedBox(height: 4),
                             itemCount: _tickets.length,
@@ -1802,10 +1843,11 @@ class _ChatAppBar extends StatelessWidget {
 }
 
 class _ChatListItem extends StatelessWidget {
-  const _ChatListItem({required this.ticket, required this.onTap});
+  const _ChatListItem({required this.ticket, required this.onTap, this.unread = false});
 
   final TicketData ticket;
   final VoidCallback onTap;
+  final bool unread;
 
   @override
   Widget build(BuildContext context) {
@@ -1833,7 +1875,9 @@ class _ChatListItem extends StatelessWidget {
             : (ticket.summary),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(color: Color(0xFF526380)),
+        style: TextStyle(
+            color: const Color(0xFF526380),
+            fontWeight: unread ? FontWeight.w700 : FontWeight.w400),
       ),
       trailing: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -1841,13 +1885,27 @@ class _ChatListItem extends StatelessWidget {
           Text(timeText,
               style: const TextStyle(color: Color(0xFF526380), fontSize: 12)),
           const SizedBox(height: 6),
-          Text(
-            ticket.status,
-            style: const TextStyle(
-                color: Color(0xFF1E88E5),
-                fontSize: 12,
-                fontWeight: FontWeight.w600),
-          ),
+          unread
+              ? Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E88E5),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text('Baru',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700)),
+                )
+              : Text(
+                  ticket.status,
+                  style: const TextStyle(
+                      color: Color(0xFF1E88E5),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600),
+                ),
         ],
       ),
     );
