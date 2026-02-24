@@ -43,10 +43,10 @@ export function createSocket(httpServer) {
         [messageId, ticketId]
       )
       const [message] = await query(
-        'SELECT id, chat_sender_type AS senderType, text, created_at AS createdAt FROM chat_messages WHERE id = ?',
+        'SELECT id, ticket_id AS ticketId, chat_sender_type AS senderType, text, created_at AS createdAt FROM chat_messages WHERE id = ?',
         [messageId]
       )
-      io.to(`ticket:${ticketId}`).emit('message:new', message)
+      io.to(`ticket:${ticketId}`).emit('message:new', { ...message, ticket_id: ticketId })
       // push notif to ticket owner if sender is admin
       if (senderType === 'admin') {
         const rows = await query('SELECT user_id FROM chat_tickets WHERE id = ? LIMIT 1', [ticketId])

@@ -27,7 +27,7 @@ router.get('/chat/tickets', authRequired(), async (req, res) => {
 })
 
 router.get('/admin/chat/tickets', authRequired('admin'), async (req, res) => {
-  const { status, competition_id } = req.query
+  const { status, competition_id, topic, competition_type } = req.query
   const params = []
   let sql = `SELECT t.id,
                     t.chat_topic   AS topic,
@@ -36,9 +36,16 @@ router.get('/admin/chat/tickets', authRequired('admin'), async (req, res) => {
                     t.competition_id,
                     t.last_message_at AS lastMessageAt,
                     c.title AS competitionTitle,
-                    t.user_id
+                    c.location_type AS competitionLocationType,
+                    t.user_id,
+                    u.name AS user_name,
+                    u.email AS user_email,
+                    u.whatsapp,
+                    lm.text AS lastMessage
              FROM chat_tickets t
-             LEFT JOIN competitions c ON c.id = t.competition_id`
+             LEFT JOIN competitions c ON c.id = t.competition_id
+             LEFT JOIN users u ON u.id = t.user_id
+             LEFT JOIN chat_messages lm ON lm.id = t.last_message_id`
   const clauses = []
   if (status) {
     clauses.push('t.chat_status = ?')
@@ -47,6 +54,14 @@ router.get('/admin/chat/tickets', authRequired('admin'), async (req, res) => {
   if (competition_id) {
     clauses.push('t.competition_id = ?')
     params.push(competition_id)
+  }
+  if (topic) {
+    clauses.push('t.chat_topic = ?')
+    params.push(topic)
+  }
+  if (competition_type) {
+    clauses.push('c.location_type = ?')
+    params.push(competition_type)
   }
   if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ')
   sql += ' ORDER BY t.last_message_at DESC LIMIT 500'
@@ -103,6 +118,7 @@ router.get('/chat/tickets/:id/messages', authRequired(), async (req, res) => {
   const ticketId = req.params.id
   const rows = await query(
     `SELECT id,
+            ticket_id AS ticketId,
             chat_sender_type AS senderType,
             text,
             created_at AS createdAt
@@ -129,7 +145,7 @@ router.post('/chat/tickets/:id/messages', authRequired(), async (req, res) => {
     ticketId,
   ])
   const [message] = await query(
-    'SELECT id, chat_sender_type AS senderType, text, created_at AS createdAt FROM chat_messages WHERE id = ?',
+    'SELECT id, ticket_id AS ticketId, chat_sender_type AS senderType, text, created_at AS createdAt FROM chat_messages WHERE id = ?',
     [messageId]
   )
   res.status(201).json({ ok: true, message })

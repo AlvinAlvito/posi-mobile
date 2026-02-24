@@ -48,3 +48,6 @@ app.*.map.json
 /backend/.env.local
 /backend/npm-debug.log*
 /backend/yarn-error.log*
+
+# Frontend (admin React static)
+/frontend/node_modules/

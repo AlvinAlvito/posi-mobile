@@ -843,6 +843,7 @@ class _ChatTabState extends State<ChatTab> {
   bool _sending = false;
   Timer? _ticketsTimer;
   Timer? _messagesTimer;
+  ProfileData? _profile;
 
   @override
   void dispose() {
@@ -857,6 +858,7 @@ class _ChatTabState extends State<ChatTab> {
   @override
   void initState() {
     super.initState();
+    _loadProfile();
     _loadTickets().whenComplete(_startSocket);
   }
 
@@ -882,6 +884,15 @@ class _ChatTabState extends State<ChatTab> {
       });
       _maybeScrollToBottom();
     });
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final p = await apiClient.fetchProfile();
+      if (mounted) setState(() => _profile = p);
+    } catch (_) {
+      // ignore; profil tidak wajib untuk chat
+    }
   }
 
   Future<void> _loadTickets({bool withLoading = true}) async {
@@ -1071,6 +1082,14 @@ class _ChatTabState extends State<ChatTab> {
                       color: const Color(0xFF1E88E5),
                       onBack: () => setState(() => _showDetail = false),
                     ),
+                    if (_profile != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                        child: _UserInfoCard(
+                          profile: _profile!,
+                          ticket: ticket,
+                        ),
+                      ),
                     Expanded(
                       child: Container(
                         margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -1803,6 +1822,68 @@ class _ChatListItem extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w600),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserInfoCard extends StatelessWidget {
+  const _UserInfoCard({required this.profile, required this.ticket});
+
+  final ProfileData profile;
+  final TicketData ticket;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F8FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD4E4FF)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: const Color(0xFF1E88E5),
+            child: Text(
+              profile.name.isNotEmpty ? profile.name[0].toUpperCase() : '?',
+              style: const TextStyle(color: Colors.white, fontSize: 20),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(profile.name,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, color: Color(0xFF143155))),
+                const SizedBox(height: 2),
+                Text(profile.email,
+                    style: const TextStyle(color: Color(0xFF526380))),
+                if (profile.whatsapp.isNotEmpty)
+                  Text(profile.whatsapp,
+                      style: const TextStyle(color: Color(0xFF526380))),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(ticket.competitionTitle,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, color: Color(0xFF143155))),
+              const SizedBox(height: 4),
+              Text('Perihal: ${ticket.topic}',
+                  style: const TextStyle(color: Color(0xFF526380))),
+              Text('Status: ${ticket.status}',
+                  style: const TextStyle(color: Color(0xFF1E88E5))),
+            ],
+          )
         ],
       ),
     );
