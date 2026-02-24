@@ -211,12 +211,19 @@ class ApiClient {
         .setExtraHeaders(token != null ? {'Authorization': 'Bearer $token'} : {})
         .setQuery({
           'ts': DateTime.now().millisecondsSinceEpoch.toString(),
+          if (token != null) 'token': token, // fallback auth for socket middleware
         })
         .build();
     _socket = IO.io(_baseUrlResolved, opts);
 
     _socket!.onConnect((_) {
       debugPrint('Socket connected');
+      for (final id in _joinedRooms) {
+        _socket!.emit('join-ticket', id);
+      }
+    });
+    _socket!.onReconnect((_) {
+      debugPrint('Socket reconnected');
       for (final id in _joinedRooms) {
         _socket!.emit('join-ticket', id);
       }
@@ -917,7 +924,9 @@ class _ChatTabState extends State<ChatTab> {
         });
       }
       if (_activeId != null) {
-        _loadMessages(_activeId!);
+        final currentId = _activeId!;
+        _loadMessages(currentId);
+        _startMessagesPolling(currentId);
       }
     } catch (_) {
       // ignore for now
@@ -943,6 +952,13 @@ class _ChatTabState extends State<ChatTab> {
     } finally {
       if (mounted && withLoading) setState(() => _loadingMessages = false);
     }
+  }
+
+  void _startMessagesPolling(int ticketId) {
+    _messagesTimer?.cancel();
+    _messagesTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _loadMessages(ticketId, withLoading: false);
+    });
   }
 
   void _maybeScrollToBottom() {
@@ -1295,12 +1311,13 @@ class _ChatTabState extends State<ChatTab> {
                               final t = _tickets[i];
                               return _ChatListItem(
                                 ticket: t,
-                                onTap: () => setState(() {
-                                  _activeId = t.id;
-                                  _showDetail = true;
-                                  apiClient.joinTicketRoom(t.id);
-                                  _loadMessages(t.id);
-                                }),
+                  onTap: () => setState(() {
+                    _activeId = t.id;
+                    _showDetail = true;
+                    apiClient.joinTicketRoom(t.id);
+                    _loadMessages(t.id);
+                    _startMessagesPolling(t.id);
+                  }),
                               );
                             },
                             separatorBuilder: (_, __) =>
