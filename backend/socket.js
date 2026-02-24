@@ -5,15 +5,26 @@ import { sendPush } from './fcm.js'
 import { pool } from './db.js'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret'
+let ioInstance = null
 
 export function createSocket(httpServer) {
   const io = new Server(httpServer, {
     cors: { origin: process.env.CORS_ORIGIN || '*', credentials: true },
   })
+  ioInstance = io
 
   io.use((socket, next) => {
     try {
-      const token = socket.handshake.auth?.token || socket.handshake.headers.authorization?.replace('Bearer ', '')
+      let token =
+        socket.handshake.auth?.token ||
+        socket.handshake.headers.authorization?.replace('Bearer ', '')
+
+      // fallback: read token from cookie (browser)
+      if (!token && socket.handshake.headers.cookie) {
+        const m = socket.handshake.headers.cookie.match(/(?:^|;\\s*)token=([^;]+)/)
+        if (m) token = decodeURIComponent(m[1])
+      }
+
       if (!token) return next(new Error('No token'))
       const user = jwt.verify(token, JWT_SECRET)
       socket.user = user
@@ -30,6 +41,7 @@ export function createSocket(httpServer) {
 
     socket.on('message:send', async ({ ticketId, text }) => {
       if (!ticketId || !text) return
+      if (!socket.user) return // must be authenticated to send
       const senderType = socket.user.role === 'admin' ? 'admin' : 'user'
       const senderUserId = senderType === 'user' ? socket.user.id : null
       const senderAdminId = senderType === 'admin' ? socket.user.id : null
@@ -64,4 +76,8 @@ export function createSocket(httpServer) {
   })
 
   return io
+}
+
+export function getIo() {
+  return ioInstance
 }

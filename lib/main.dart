@@ -42,6 +42,7 @@ class ApiClient {
   late final String _baseUrlResolved;
   String? _authToken;
   IO.Socket? _socket;
+  final Set<int> _joinedRooms = {};
 
   String get baseUrl => _baseUrlResolved;
   String? get authToken => _authToken;
@@ -214,7 +215,12 @@ class ApiClient {
         .build();
     _socket = IO.io(_baseUrlResolved, opts);
 
-    _socket!.onConnect((_) => debugPrint('Socket connected'));
+    _socket!.onConnect((_) {
+      debugPrint('Socket connected');
+      for (final id in _joinedRooms) {
+        _socket!.emit('join-ticket', id);
+      }
+    });
     _socket!.onDisconnect((_) => debugPrint('Socket disconnected'));
     _socket!.onError((err) => debugPrint('Socket error: $err'));
 
@@ -231,6 +237,7 @@ class ApiClient {
   }
 
   void joinTicketRoom(int ticketId) {
+    _joinedRooms.add(ticketId);
     _socket?.emit('join-ticket', ticketId);
   }
 
@@ -1026,8 +1033,10 @@ class _ChatTabState extends State<ChatTab> {
       _controller.clear();
     });
     try {
-      // kirim lewat socket
-      apiClient.sendSocketMessage(ticketId, text);
+      // kirim via REST (server akan broadcast ke socket)
+      await apiClient.sendMessage(ticketId, text);
+      // reload pesan untuk mengganti pesan optimistik dengan data real (id/timestamp)
+      await _loadMessages(ticketId, withLoading: false);
       setState(() {
         _tickets = _tickets
             .map((t) => t.id == ticketId
@@ -1041,7 +1050,7 @@ class _ChatTabState extends State<ChatTab> {
                     lastMessageAt: now,
                   ))
                 : t)
-            .toList();
+        .toList();
       });
     } catch (_) {
       // rollback UI if failed

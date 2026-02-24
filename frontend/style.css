@@ -82,6 +82,18 @@ body {
   overflow-y: auto;
   padding-right: 8px;
   max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.message-row {
+  display: flex;
+}
+.message-row.me {
+  justify-content: flex-end;
+}
+.message-row.them {
+  justify-content: flex-start;
 }
 .ticket-list {
   overflow-y: auto;
@@ -119,23 +131,24 @@ body {
   gap: 12px;
 }
 .chat-bubble {
-  max-width: 78%;
+  max-width: 75%;
+  width: fit-content;
   padding: 12px 14px 10px;
   border-radius: 14px;
   margin-bottom: 12px;
   line-height: 1.5;
   position: relative;
+  display: inline-flex;
+  flex-direction: column;
 }
 .chat-bubble.me {
   background: var(--primary);
   color: white;
-  margin-left: auto;
   border-bottom-right-radius: 4px;
 }
 .chat-bubble.them {
   background: #f1f5f9;
   color: #0f172a;
-  margin-right: auto;
   border-bottom-left-radius: 4px;
 }
 .bubble-meta {

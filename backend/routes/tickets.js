@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { authRequired } from '../auth.js'
+import { getIo } from '../socket.js'
 import { query, pool } from '../db.js'
 import { sendPush } from '../fcm.js'
 
@@ -148,6 +149,31 @@ router.post('/chat/tickets/:id/messages', authRequired(), async (req, res) => {
     'SELECT id, ticket_id AS ticketId, chat_sender_type AS senderType, text, created_at AS createdAt FROM chat_messages WHERE id = ?',
     [messageId]
   )
+  const io = getIo()
+  if (io) io.to(`ticket:${ticketId}`).emit('message:new', { ...message, ticket_id: Number(ticketId) })
+  res.status(201).json({ ok: true, message })
+})
+
+// Admin send message
+router.post('/admin/chat/tickets/:id/messages', authRequired('admin'), async (req, res) => {
+  const ticketId = req.params.id
+  const { text } = req.body || {}
+  if (!text) return res.status(400).json({ message: 'Text wajib' })
+  const [insertRes] = await pool.execute(
+    'INSERT INTO chat_messages (ticket_id, chat_sender_type, sender_admin_id, text) VALUES (?, ?, ?, ?)',
+    [ticketId, 'admin', req.user.id, text]
+  )
+  const messageId = insertRes.insertId
+  await pool.execute('UPDATE chat_tickets SET last_message_at = NOW(), last_message_id = ? WHERE id = ?', [
+    messageId,
+    ticketId,
+  ])
+  const [message] = await query(
+    'SELECT id, ticket_id AS ticketId, chat_sender_type AS senderType, text, created_at AS createdAt FROM chat_messages WHERE id = ?',
+    [messageId]
+  )
+  const io = getIo()
+  if (io) io.to(`ticket:${ticketId}`).emit('message:new', { ...message, ticket_id: Number(ticketId) })
   res.status(201).json({ ok: true, message })
 })
 

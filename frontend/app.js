@@ -258,22 +258,24 @@ function Dashboard({ token }) {
      extraHeaders: token ? { Authorization: `Bearer ${token}` } : {},
    });
    s.on("connect_error", (err) => setError(`Socket error: ${err.message}`));
-    s.on("message:new", (m) => {
-      const ticketId = m.ticket_id || m.ticketId;
+   s.on("connect", () => {
+     if (active?.id) s.emit("join-ticket", active.id);
+   });
+   s.on("message:new", (m) => {
+     const ticketId = m.ticket_id || m.ticketId;
       setMessages((prev) => {
         if (!(active && ticketId === active.id)) return prev;
         if (m.id && prev.some((x) => x.id === m.id)) return prev;
-        // jika server tidak kirim id, pakai signature text+createdAt untuk cegah duplikasi
         const sig = `${m.text}-${m.createdAt || ""}-${m.senderType || ""}`;
         if (!m.id && prev.some((x) => `${x.text}-${x.createdAt || ""}-${x.senderType || ""}` === sig)) return prev;
         return [...prev, m];
       });
-     setTickets((prev) =>
-       prev.map((t) =>
-         t.id === ticketId
-           ? { ...t, lastMessage: m.text, lastMessageAt: m.createdAt }
-           : t,
-        ),
+      setTickets((prev) =>
+        prev.map((t) =>
+          t.id === ticketId
+            ? { ...t, lastMessage: m.text, lastMessageAt: m.createdAt }
+            : t
+        )
       );
     });
     setSocket(s);
@@ -317,29 +319,40 @@ function Dashboard({ token }) {
     loadTickets();
   }, [statusFilter, compTypeFilter, topicFilter]);
   useEffect(() => {
-    if (active) loadMessages(active.id);
+    if (active) {
+      loadMessages(active.id);
+      if (socket?.connected) socket.emit("join-ticket", active.id);
+    }
   }, [active?.id]);
 
   const handleSend = async (text) => {
     if (!active) return;
     setSending(true);
    try {
-      // simpan via REST supaya pasti tercatat, server kirim id unik
-      const res = await api.post(`/api/chat/tickets/${active.id}/messages`, { text });
-      const saved = res.data?.message;
-      // kirim socket untuk klien lain jika konek (server akan broadcast, tapi client akan dedup by id)
-      if (socket?.connected) {
-        socket.emit("message:send", { ticketId: active.id, text });
+      // kirim via endpoint admin; fallback ke user endpoint jika gagal (compat)
+      let saved;
+      try {
+        const res = await api.post(`/api/admin/chat/tickets/${active.id}/messages`, { text });
+        saved = res.data?.message;
+      } catch (_) {
+        const res = await api.post(`/api/chat/tickets/${active.id}/messages`, { text });
+        saved = res.data?.message;
       }
-      // tambahkan langsung pesan yang baru disimpan, dedup dengan id
-      if (saved?.id) {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === saved.id)) return prev;
-          return [...prev, saved];
-        });
-      } else {
-        await loadMessages(active.id);
-      }
+      // pesan sudah disimpan via REST; server akan broadcast message:new.
+      // Optimistik: tambahkan jika belum ada.
+      const optimistic =
+        saved ||
+        {
+          id: Date.now(),
+          ticketId: active.id,
+          senderType: "admin",
+          text,
+          createdAt: new Date().toISOString(),
+        };
+      setMessages((prev) => {
+        if (optimistic.id && prev.some((m) => m.id === optimistic.id)) return prev;
+        return [...prev, optimistic];
+      });
       setTickets((prev) =>
         prev.map((t) =>
           t.id === active.id
