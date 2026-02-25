@@ -8,6 +8,7 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'http_adapter.dart' as http_adapter;
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 /// Simple API client to hit the POSI web backend and keep session cookies.
 class ApiClient {
@@ -19,9 +20,12 @@ class ApiClient {
             ) {
     final fallback = _baseUrl.isNotEmpty
         ? _baseUrl
-        : (kIsWeb ? Uri.base.origin : 'http://localhost:3000');
+        : (kIsWeb
+            ? '${Uri.base.scheme}://${Uri.base.host}:${Uri.base.hasPort ? 4000 : 4000}'
+            : 'http://10.0.2.2:4000');
     _baseUrlResolved = fallback;
     final jar = CookieJar();
+    _cookieJar = jar;
     _dio = Dio(
       BaseOptions(
         baseUrl: _baseUrlResolved,
@@ -43,6 +47,8 @@ class ApiClient {
   String? _authToken;
   IO.Socket? _socket;
   final Set<int> _joinedRooms = {};
+  IO.Socket? get socket => _socket;
+  CookieJar? _cookieJar;
 
   String get baseUrl => _baseUrlResolved;
   String? get authToken => _authToken;
@@ -81,7 +87,7 @@ class ApiClient {
     final res = await _dio.post<Map<String, dynamic>>(
       '/api/chat/tickets',
       data: {
-        'competitionId': competitionId,
+        'competition_id': competitionId,
         'topic': topic,
         'summary': summary,
         'message': summary,
@@ -199,21 +205,39 @@ class ApiClient {
   }
 
   // -------- Socket.IO --------
-  void ensureSocket({
+  Future<void> ensureSocket({
     void Function(ChatMessageData message, int ticketId)? onMessage,
-  }) {
+  }) async {
     if (_socket != null) return;
-    final token = _authToken;
-    final opts = IO.OptionBuilder()
-        .setTransports(['websocket'])
+    String? token = _authToken;
+    if (token == null && _cookieJar != null) {
+      try {
+        final cookies = await _cookieJar!
+            .loadForRequest(Uri.parse(_baseUrlResolved));
+        for (final c in cookies) {
+          if (c.name.toLowerCase() == 'token' && c.value.isNotEmpty) {
+            token = c.value;
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+    final query = {
+      'ts': DateTime.now().millisecondsSinceEpoch.toString(),
+      if (token != null) 'token': token,
+    };
+
+    final builder = IO.OptionBuilder()
+        .setTransports(['websocket', 'polling'])
         .enableForceNew()
-        .enableAutoConnect()
-        .setExtraHeaders(token != null ? {'Authorization': 'Bearer $token'} : {})
-        .setQuery({
-          'ts': DateTime.now().millisecondsSinceEpoch.toString(),
-          if (token != null) 'token': token, // fallback auth for socket middleware
-        })
-        .build();
+        .enableAutoConnect();
+
+    if (!kIsWeb && token != null) {
+      builder.setExtraHeaders({'Authorization': 'Bearer $token'});
+    }
+    builder.setQuery(query);
+
+    final opts = builder.build();
     _socket = IO.io(_baseUrlResolved, opts);
 
     _socket!.onConnect((_) {
@@ -235,9 +259,10 @@ class ApiClient {
       if (data is Map) {
         final message =
             ChatMessageData.fromJson(data.cast<String, dynamic>());
-        final ticketId = data['ticket_id'] as int? ??
-            data['ticketId'] as int? ??
-            0;
+        final rawId = data['ticket_id'] ?? data['ticketId'];
+        final ticketId = rawId is int
+            ? rawId
+            : (rawId is String ? int.tryParse(rawId) ?? 0 : 0);
         if (onMessage != null) onMessage(message, ticketId);
       }
     });
@@ -246,6 +271,14 @@ class ApiClient {
   void joinTicketRoom(int ticketId) {
     _joinedRooms.add(ticketId);
     _socket?.emit('join-ticket', ticketId);
+  }
+
+  Future<void> markTicketRead(int ticketId) async {
+    try {
+      await _dio.patch('/api/chat/tickets/$ticketId/read');
+    } catch (_) {
+      // non-fatal
+    }
   }
 
   void sendSocketMessage(int ticketId, String text) {
@@ -297,9 +330,13 @@ class TicketData {
         topic: (json['topic'] ?? '').toString(),
         summary: (json['summary'] ?? '').toString(),
         status: (json['status'] ?? '').toString(),
-        competitionTitle: (json['competitionTitle'] ?? 'Kompetisi') as String,
-        lastMessage: (json['lastMessage']?['text']) as String?,
-        lastMessageAt: (json['lastMessageAt'] ?? json['updatedAt']) as String?,
+        competitionTitle:
+            (json['competitionTitle'] ?? 'Tanpa Kompetisi').toString(),
+        lastMessage: json['lastMessage'] is Map
+            ? (json['lastMessage']?['text'] as String?)
+            : (json['lastMessage'] as String?) ?? json['summary']?.toString(),
+        lastMessageAt:
+            (json['lastMessageAt'] ?? json['updatedAt']) as String?,
       );
 }
 
@@ -859,13 +896,28 @@ class _ChatTabState extends State<ChatTab> {
   Timer? _messagesTimer;
   ProfileData? _profile;
   final Set<int> _unreadTickets = {};
+  bool _socketConnected = false;
 
-  int _tsMillis(String? ts) {
-    if (ts == null || ts.isEmpty) return 0;
-    final dt = DateTime.tryParse(ts);
-    if (dt == null) return 0;
-    return dt.millisecondsSinceEpoch;
+  DateTime? _parseTs(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return null;
+    return dt.isUtc ? dt.toLocal() : dt;
   }
+
+int _tsMillis(String? ts) {
+  if (ts == null || ts.isEmpty) return 0;
+  final dt = _parseTs(ts);
+  if (dt == null) return 0;
+  return dt.millisecondsSinceEpoch;
+}
+
+DateTime? _parseTsLocal(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  final dt = DateTime.tryParse(raw);
+  if (dt == null) return null;
+  return dt.isUtc ? dt.toLocal() : dt;
+}
 
   void _sortTickets() {
     _tickets.sort((a, b) {
@@ -895,6 +947,8 @@ class _ChatTabState extends State<ChatTab> {
   void _startSocket() {
     apiClient.ensureSocket(onMessage: (msg, ticketId) {
       final nowTs = DateTime.now().toIso8601String();
+      bool updated = false;
+      debugPrint('[socket] message:new ticket=$ticketId text=${msg.text}');
       setState(() {
         final list = _messages[ticketId] ?? [];
         _messages[ticketId] = [
@@ -916,16 +970,41 @@ class _ChatTabState extends State<ChatTab> {
                     status: t.status,
                     competitionTitle: t.competitionTitle,
                     lastMessage: msg.text,
-                    lastMessageAt: nowTs,
+                    lastMessageAt: nowTs, // gunakan waktu terima lokal untuk mengurutkan
                   )
                 : t)
             .toList();
+        updated = _tickets.any((t) => t.id == ticketId);
         _sortTickets();
         if (_activeId != ticketId || !_showDetail) {
           _unreadTickets.add(ticketId);
         }
       });
+      if (!updated) {
+        // jika tiket belum ada (misal baru dibuat), refresh ringan tanpa spinner
+        _loadTickets(withLoading: false);
+      } else {
+        // pastikan room yang aktif tetap ter-join jika datang pesan pertama kali
+        apiClient.joinTicketRoom(ticketId);
+      }
       _maybeScrollToBottom();
+    });
+
+    apiClient.socket?.onConnect((_) {
+      debugPrint('[socket] connected');
+      setState(() => _socketConnected = true);
+      _messagesTimer?.cancel();
+    });
+    apiClient.socket?.onDisconnect((_) {
+      debugPrint('[socket] disconnected');
+      setState(() => _socketConnected = false);
+      _startFallbackPolling();
+    });
+    apiClient.socket?.onConnectError((err) {
+      debugPrint('[socket] connect_error $err');
+    });
+    apiClient.socket?.onError((err) {
+      debugPrint('[socket] error $err');
     });
   }
 
@@ -963,8 +1042,8 @@ class _ChatTabState extends State<ChatTab> {
       }
       if (_activeId != null) {
         final currentId = _activeId!;
+        apiClient.joinTicketRoom(currentId); // pastikan room aktif ter-join
         _loadMessages(currentId);
-        _startMessagesPolling(currentId);
       }
     } catch (_) {
       // ignore for now
@@ -992,12 +1071,14 @@ class _ChatTabState extends State<ChatTab> {
     }
   }
 
-  void _startMessagesPolling(int ticketId) {
+  void _startFallbackPolling() {
     _messagesTimer?.cancel();
-    _messagesTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _loadMessages(ticketId, withLoading: false);
+    _messagesTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_socketConnected) return;
+      if (_activeId != null) _loadMessages(_activeId!, withLoading: false);
     });
   }
+
 
   void _maybeScrollToBottom() {
     if (!_msgScroll.hasClients) return;
@@ -1046,7 +1127,7 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   String? _friendlyDate(String raw) {
-    final dt = DateTime.tryParse(raw);
+    final dt = _parseTs(raw);
     if (dt == null) return null;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -1207,8 +1288,7 @@ class _ChatTabState extends State<ChatTab> {
 
                                           final m = entry.message!;
                                           final isMe = m.senderType == 'user';
-                                          final time =
-                                              DateTime.tryParse(m.createdAt);
+                                          final time = _parseTs(m.createdAt);
                                           final timeText = time != null
                                               ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
                                               : '';
@@ -1352,12 +1432,12 @@ class _ChatTabState extends State<ChatTab> {
                                 ticket: t,
                                 unread: _unreadTickets.contains(t.id),
                                 onTap: () => setState(() {
-                                  _activeId = t.id;
-                                  _showDetail = true;
-                                  apiClient.joinTicketRoom(t.id);
-                                  _unreadTickets.remove(t.id);
+                              _activeId = t.id;
+                              _showDetail = true;
+                              apiClient.joinTicketRoom(t.id);
+                              _unreadTickets.remove(t.id);
+                              apiClient.markTicketRead(t.id);
                               _loadMessages(t.id);
-                              _startMessagesPolling(t.id);
                             }),
                       );
                     },
@@ -1849,11 +1929,18 @@ class _ChatListItem extends StatelessWidget {
   final VoidCallback onTap;
   final bool unread;
 
+  DateTime? _parseTsLocalInline(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return null;
+    return dt.isUtc ? dt.toLocal() : dt;
+  }
+
   @override
   Widget build(BuildContext context) {
     String timeText = '';
     if (ticket.lastMessageAt != null) {
-      final t = DateTime.tryParse(ticket.lastMessageAt!);
+      final t = _parseTsLocalInline(ticket.lastMessageAt);
       if (t != null) {
         timeText =
             '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
@@ -1866,9 +1953,13 @@ class _ChatListItem extends StatelessWidget {
         backgroundColor: Color(0xFFE3F2FF),
         child: Icon(Icons.chat_bubble_outline, color: Color(0xFF1A2F4D)),
       ),
-      title: Text(ticket.topic,
-          style: const TextStyle(
-              fontWeight: FontWeight.w700, color: Color(0xFF0A1F3F))),
+      title: Text(
+        _titleWithCompetition(ticket.topic, ticket.competitionTitle),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+            fontWeight: FontWeight.w700, color: Color(0xFF0A1F3F)),
+      ),
       subtitle: Text(
         ticket.lastMessage?.isNotEmpty == true
             ? ticket.lastMessage!
@@ -1909,6 +2000,14 @@ class _ChatListItem extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _titleWithCompetition(String topic, String competition) {
+    if (competition.isEmpty) return topic;
+    const maxLen = 32;
+    String comp = competition;
+    if (comp.length > maxLen) comp = '${comp.substring(0, maxLen - 3)}...';
+    return '$topic • $comp';
   }
 }
 

@@ -16,9 +16,11 @@ router.get('/chat/tickets', authRequired(), async (req, res) => {
             t.chat_status  AS status,
             t.competition_id,
             t.last_message_at AS lastMessageAt,
-            c.title AS competitionTitle
+            c.title AS competitionTitle,
+            lm.text AS lastMessage
      FROM chat_tickets t
      LEFT JOIN competitions c ON c.id = t.competition_id
+     LEFT JOIN chat_messages lm ON lm.id = t.last_message_id
      WHERE t.user_id = ?
      ORDER BY t.last_message_at DESC
      LIMIT 200`,
@@ -175,6 +177,20 @@ router.post('/admin/chat/tickets/:id/messages', authRequired('admin'), async (re
   const io = getIo()
   if (io) io.to(`ticket:${ticketId}`).emit('message:new', { ...message, ticket_id: Number(ticketId) })
   res.status(201).json({ ok: true, message })
+})
+
+// Tandai tiket telah dibaca (ubah status ke Proses)
+router.patch('/chat/tickets/:id/read', authRequired(), async (req, res) => {
+  const ticketId = req.params.id
+  const status = req.body?.status || 'Proses'
+  const role = req.user.role || 'user'
+  const fieldClause = role === 'admin' ? '' : 'AND user_id = ?'
+  const params = role === 'admin' ? [status, ticketId] : [status, ticketId, req.user.id]
+  await pool.execute(
+    `UPDATE chat_tickets SET chat_status = ? WHERE id = ? ${fieldClause}`,
+    params
+  )
+  res.json({ ok: true })
 })
 
 export default router

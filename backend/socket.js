@@ -24,18 +24,27 @@ export function createSocket(httpServer) {
         const m = socket.handshake.headers.cookie.match(/(?:^|;\\s*)token=([^;]+)/)
         if (m) token = decodeURIComponent(m[1])
       }
+      // fallback: query param token
+      if (!token && socket.handshake.query && socket.handshake.query.token) {
+        const q = socket.handshake.query.token
+        token = Array.isArray(q) ? q[0] : q
+      }
 
       if (!token) return next(new Error('No token'))
       const user = jwt.verify(token, JWT_SECRET)
       socket.user = user
+      console.log('[socket] auth ok user', user.id, 'role', user.role)
       next()
     } catch (err) {
+      console.log('[socket] auth error', err.message)
       next(err)
     }
   })
 
   io.on('connection', (socket) => {
+    console.log('[socket] connected', socket.id, 'user', socket.user?.id, 'role', socket.user?.role)
     socket.on('join-ticket', (ticketId) => {
+      console.log('[socket] join-ticket', ticketId, 'user', socket.user?.id)
       socket.join(`ticket:${ticketId}`)
     })
 
