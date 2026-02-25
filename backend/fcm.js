@@ -6,26 +6,30 @@ dotenv.config()
 let messaging = null
 
 async function initFirebase() {
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT) return
+  const saRaw = process.env.FIREBASE_SERVICE_ACCOUNT
+  if (!saRaw || !saRaw.trim()) {
+    console.warn('FCM init skipped: FIREBASE_SERVICE_ACCOUNT not set')
+    return
+  }
   try {
-    const admin = await import('firebase-admin')
+    const adminModule = await import('firebase-admin')
+    const admin = adminModule.default || adminModule
     let credJson
     // allow inline JSON or file path
-    const sa = process.env.FIREBASE_SERVICE_ACCOUNT
-    if (sa.trim().startsWith('{')) {
-      credJson = JSON.parse(sa)
+    if (saRaw.trim().startsWith('{')) {
+      credJson = JSON.parse(saRaw)
     } else {
-      const raw = await fs.readFile(sa, 'utf8')
+      const raw = await fs.readFile(saRaw, 'utf8')
       credJson = JSON.parse(raw)
     }
-    if (!admin.apps.length) {
+    if (!admin.apps || !admin.apps.length) {
       admin.initializeApp({
         credential: admin.credential.cert(credJson),
       })
     }
     messaging = admin.messaging()
   } catch (err) {
-    console.warn('FCM init failed, continuing without push:', err.message)
+    console.warn('FCM init failed, continuing without push:', err)
   }
 }
 
@@ -41,5 +45,11 @@ export async function sendPush(tokens, payload) {
     },
     data: payload.data || {},
   }
-  return messaging.sendEachForMulticast(msg)
+  try {
+    const res = await messaging.sendEachForMulticast(msg)
+    return res
+  } catch (err) {
+    console.error('[push] send error', err)
+    return { error: err }
+  }
 }

@@ -7,10 +7,90 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'http_adapter.dart' as http_adapter;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+final FlutterLocalNotificationsPlugin _fln = FlutterLocalNotificationsPlugin();
+const AndroidNotificationChannel _notifChannel = AndroidNotificationChannel(
+  'posi_chat',
+  'POSI Chat',
+  description: 'Notifikasi pesan POSI',
+  importance: Importance.high,
+);
+
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  // OS akan menampilkan notifikasi jika payload mengandung "notification".
+}
+
+Future<void> _initPush() async {
+  await Firebase.initializeApp();
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  const initSettings = InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+  );
+  await _fln.initialize(initSettings);
+  await _fln
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(_notifChannel);
+
+  await FirebaseMessaging.instance
+      .setForegroundNotificationPresentationOptions(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
+
+  FirebaseMessaging.onMessage.listen(_showLocalNotification);
+}
+
+Future<void> _showLocalNotification(RemoteMessage message) async {
+  final notification = message.notification;
+  final androidDetails = AndroidNotificationDetails(
+    _notifChannel.id,
+    _notifChannel.name,
+    channelDescription: _notifChannel.description,
+    importance: Importance.high,
+    priority: Priority.high,
+  );
+  final details = NotificationDetails(android: androidDetails);
+  await _fln.show(
+    notification.hashCode,
+    notification?.title ?? 'Pesan baru',
+    notification?.body ?? (message.data['body'] as String? ?? 'Ada pesan baru'),
+    details,
+    payload: message.data['ticketId']?.toString(),
+  );
+}
+
+Future<void> _registerFcmTokenIfAuthenticated() async {
+  try {
+    final perm = await FirebaseMessaging.instance.requestPermission();
+    if (perm.authorizationStatus == AuthorizationStatus.denied) return;
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token != null && apiClient.authToken != null) {
+      final platform = kIsWeb
+          ? 'web'
+          : (Platform.isIOS
+              ? 'ios'
+              : (Platform.isAndroid ? 'android' : Platform.operatingSystem));
+      await apiClient.registerDeviceToken(
+        token,
+        platform: platform,
+        app: kIsWeb ? 'posi-web' : 'posi-mobile',
+      );
+    }
+  } catch (_) {}
+}
 
 /// Simple API client to hit the POSI web backend and keep session cookies.
 class ApiClient {
@@ -51,12 +131,33 @@ class ApiClient {
   late final String _baseUrlResolved;
   String? _authToken;
   IO.Socket? _socket;
+  // Persisted auth token for auto-login across app restarts.
+  static const _tokenPrefsKey = 'posi_token';
   final Set<int> _joinedRooms = {};
   IO.Socket? get socket => _socket;
   CookieJar? _cookieJar;
 
   String get baseUrl => _baseUrlResolved;
   String? get authToken => _authToken;
+
+  Future<void> loadPersistedToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_tokenPrefsKey);
+    if (saved != null && saved.isNotEmpty) {
+      _authToken = saved;
+      _dio.options.headers['Authorization'] = 'Bearer $saved';
+    }
+  }
+
+  Future<void> _saveToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_tokenPrefsKey, token);
+  }
+
+  Future<void> clearPersistedToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_tokenPrefsKey);
+  }
 
   Future<List<TicketData>> fetchTickets() async {
     final res = await _dio.get<Map<String, dynamic>>('/api/chat/tickets',
@@ -168,6 +269,7 @@ class ApiClient {
       if (token != null) {
         _authToken = token;
         _dio.options.headers['Authorization'] = 'Bearer $token';
+        await _saveToken(token);
       }
 
       if (data != null && data['errors'] != null) {
@@ -201,6 +303,7 @@ class ApiClient {
       if (token != null) {
         _authToken = token;
         _dio.options.headers['Authorization'] = 'Bearer $token';
+        await _saveToken(token);
       }
       return LoginResult(true, null);
     } catch (e) {
@@ -240,6 +343,7 @@ class ApiClient {
     _dio.options.headers.remove('Authorization');
     _socket?.disconnect();
     _socket = null;
+    await clearPersistedToken();
   }
   Future<List<CompetitionOption>> fetchCompetitions() async {
     final res = await _dio.get<Map<String, dynamic>>('/api/competitions');
@@ -333,6 +437,16 @@ class ApiClient {
 
   void sendSocketMessage(int ticketId, String text) {
     _socket?.emit('message:send', {'ticketId': ticketId, 'text': text});
+  }
+
+  Future<void> registerDeviceToken(String token,
+      {String platform = 'android', String? app}) async {
+    try {
+      await _dio.post('/api/devices',
+          data: {'token': token, 'platform': platform, 'app': app});
+    } catch (_) {
+      // non-fatal; bisa dicoba ulang nanti
+    }
   }
 }
 
@@ -506,12 +620,15 @@ class ProfileData {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
+  await _initPush();
+  await apiClient.loadPersistedToken();
   final googleClientId = dotenv.maybeGet('GOOGLE_WEB_CLIENT_ID') ??
       const String.fromEnvironment('GOOGLE_WEB_CLIENT_ID', defaultValue: '');
   _googleSignIn = GoogleSignIn(
     scopes: ['email'],
     clientId: googleClientId.isNotEmpty ? googleClientId : null,
   );
+  await _registerFcmTokenIfAuthenticated();
   runApp(const PosiMobileApp());
 }
 
@@ -655,6 +772,7 @@ class _LoginScreenState extends State<LoginScreen> {
           _loading = false;
           _error = null;
         });
+        await _registerFcmTokenIfAuthenticated();
         widget.onLogin();
       } else {
         setState(() {
@@ -728,6 +846,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       if (result.ok) {
         setState(() => _googleLoading = false);
+        await _registerFcmTokenIfAuthenticated();
         widget.onLogin();
       } else {
         setState(() {
@@ -978,8 +1097,10 @@ class _ChatTabState extends State<ChatTab> {
   final _messages = <int, List<ChatMessageData>>{};
   String _ticketsSig = '';
   final _messageSigs = <int, String>{};
+  String _search = '';
   int? _activeId;
   bool _showDetail = false;
+  bool _forceScrollNextLoad = false;
   final _controller = TextEditingController();
   final _msgScroll = ScrollController();
   final _newSummaryCtrl = TextEditingController();
@@ -1157,7 +1278,8 @@ DateTime? _parseTsLocal(String? raw) {
           _messages[ticketId] = res;
           _messageSigs[ticketId] = newSig;
         });
-        _maybeScrollToBottom();
+        _maybeScrollToBottom(force: _forceScrollNextLoad);
+        _forceScrollNextLoad = false;
       }
     } catch (_) {
       // ignore
@@ -1175,12 +1297,11 @@ DateTime? _parseTsLocal(String? raw) {
   }
 
 
-  void _maybeScrollToBottom() {
+  void _maybeScrollToBottom({bool force = false}) {
     if (!_msgScroll.hasClients) return;
     final distanceFromBottom =
         _msgScroll.position.maxScrollExtent - _msgScroll.position.pixels;
-    // auto-scroll only if user is near bottom (keeps layar stabil saat membaca pesan lama)
-    if (distanceFromBottom < 120) {
+    if (force || distanceFromBottom < 120) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_msgScroll.hasClients) {
           _msgScroll.animateTo(
@@ -1306,6 +1427,15 @@ DateTime? _parseTsLocal(String? raw) {
         ? <ChatMessageData>[]
         : (_messages[activeTicket.id] ?? []);
     final entries = _buildMessageEntries(msgs);
+
+    final filteredTickets = _search.isEmpty
+        ? _tickets
+        : _tickets
+            .where((t) =>
+                t.topic.toLowerCase().contains(_search) ||
+                t.competitionTitle.toLowerCase().contains(_search) ||
+                t.summary.toLowerCase().contains(_search))
+            .toList();
 
     return _GradientBackground(
       child: AnimatedSwitcher(
@@ -1513,6 +1643,7 @@ DateTime? _parseTsLocal(String? raw) {
                           contentPadding:
                               const EdgeInsets.symmetric(vertical: 12),
                         ),
+                        onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
                       ),
                     ),
                   ),
@@ -1522,13 +1653,14 @@ DateTime? _parseTsLocal(String? raw) {
                         : ListView.separated(
                             padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
                             itemBuilder: (_, i) {
-                              final t = _tickets[i];
+                              final t = filteredTickets[i];
                               return _ChatListItem(
                                 ticket: t,
                                 unread: _unreadTickets.contains(t.id),
                                 onTap: () => setState(() {
                               _activeId = t.id;
                               _showDetail = true;
+                              _forceScrollNextLoad = true;
                               apiClient.joinTicketRoom(t.id);
                               _unreadTickets.remove(t.id);
                               apiClient.markTicketRead(t.id);
@@ -1538,7 +1670,7 @@ DateTime? _parseTsLocal(String? raw) {
                     },
                             separatorBuilder: (_, __) =>
                                 const SizedBox(height: 4),
-                            itemCount: _tickets.length,
+                            itemCount: filteredTickets.length,
                           ),
                   ),
                   Padding(
@@ -2122,46 +2254,81 @@ class _UserInfoCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFD4E4FF)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: const Color(0xFF1E88E5),
-            child: Text(
-              profile.name.isNotEmpty ? profile.name[0].toUpperCase() : '?',
-              style: const TextStyle(color: Colors.white, fontSize: 20),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(profile.name,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, color: Color(0xFF143155))),
-                const SizedBox(height: 2),
-                Text(profile.email,
-                    style: const TextStyle(color: Color(0xFF526380))),
-                if (profile.whatsapp.isNotEmpty)
-                  Text(profile.whatsapp,
-                      style: const TextStyle(color: Color(0xFF526380))),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(ticket.competitionTitle,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, color: Color(0xFF143155))),
-              const SizedBox(height: 4),
-              Text('Perihal: ${ticket.topic}',
-                  style: const TextStyle(color: Color(0xFF526380))),
-              Text('Status: ${ticket.status}',
-                  style: const TextStyle(color: Color(0xFF1E88E5))),
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: const Color(0xFF1E88E5),
+                child: Text(
+                  profile.name.isNotEmpty ? profile.name[0].toUpperCase() : '?',
+                  style: const TextStyle(color: Colors.white, fontSize: 20),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(profile.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF143155))),
+                    const SizedBox(height: 2),
+                    Text(profile.email,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Color(0xFF526380))),
+                    if (profile.whatsapp.isNotEmpty)
+                      Text(profile.whatsapp,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Color(0xFF526380))),
+                  ],
+                ),
+              ),
             ],
-          )
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  ticket.competitionTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, color: Color(0xFF143155)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF2FF),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  ticket.status,
+                  style: const TextStyle(
+                      color: Color(0xFF1E88E5), fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Perihal: ${ticket.topic}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFF526380)),
+          ),
         ],
       ),
     );

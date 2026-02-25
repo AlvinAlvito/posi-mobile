@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "905127695022",
+    "project_id": "posi-334ed",
+    "storage_bucket": "posi-334ed.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:905127695022:android:2bbb5719e249ecd45a533f",
+        "android_client_info": {
+          "package_name": "com.example.posi_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVZB1_fdo04sWSDKJg2-s9YtE-pEQKGY4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

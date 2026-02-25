@@ -7,13 +7,27 @@ const router = Router()
 router.post('/devices', authRequired(), async (req, res) => {
   const { token, platform, app } = req.body || {}
   if (!token || !platform) return res.status(400).json({ message: 'token & platform wajib' })
-  await query(
-    `INSERT INTO chat_device_tokens (user_id, token, platform, app, last_seen_at)
-     VALUES (?, ?, ?, ?, NOW())
-     ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), platform = VALUES(platform), app = VALUES(app), last_seen_at = NOW(), revoked_at = NULL`,
-    [req.user.id, token, platform, app || null]
-  )
-  res.json({ ok: true })
+  try {
+    await query(
+      `INSERT INTO chat_device_tokens (user_id, token, platform, app, last_seen_at)
+       VALUES (?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), platform = VALUES(platform), app = VALUES(app), last_seen_at = NOW(), revoked_at = NULL`,
+      [req.user.id, token, platform, app || null]
+    )
+    return res.json({ ok: true })
+  } catch (err) {
+    // fallback untuk schema lama yang belum punya kolom platform/app
+    if (err?.code === 'ER_BAD_FIELD_ERROR') {
+      await query(
+        `INSERT INTO chat_device_tokens (user_id, token, last_seen_at)
+         VALUES (?, ?, NOW())
+         ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), last_seen_at = NOW(), revoked_at = NULL`,
+        [req.user.id, token]
+      )
+      return res.json({ ok: true, legacy: true })
+    }
+    throw err
+  }
 })
 
 router.delete('/devices', authRequired(), async (req, res) => {

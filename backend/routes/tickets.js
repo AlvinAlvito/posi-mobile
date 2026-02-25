@@ -176,6 +176,32 @@ router.post('/admin/chat/tickets/:id/messages', authRequired('admin'), async (re
   )
   const io = getIo()
   if (io) io.to(`ticket:${ticketId}`).emit('message:new', { ...message, ticket_id: Number(ticketId) })
+
+  // Push notif ke pemilik tiket
+  try {
+    const rows = await query('SELECT user_id FROM chat_tickets WHERE id = ? LIMIT 1', [ticketId])
+    const userId = rows[0]?.user_id
+    if (userId) {
+      const tokens = await query(
+        'SELECT token FROM chat_device_tokens WHERE user_id = ? AND (revoked_at IS NULL OR revoked_at > NOW())',
+        [userId]
+      )
+      const tokenList = tokens.map((t) => t.token)
+      if (tokenList.length) {
+        console.log('[push] admin->user REST', { ticketId, userId, tokens: tokenList.length })
+        await sendPush(tokenList, {
+          title: 'Pesan baru dari admin',
+          body: text.slice(0, 80),
+          data: { ticketId: String(ticketId) },
+        })
+      } else {
+        console.log('[push] admin->user REST no tokens', { ticketId, userId })
+      }
+    }
+  } catch (err) {
+    console.error('[push] admin->user REST error', err)
+  }
+
   res.status(201).json({ ok: true, message })
 })
 
@@ -190,6 +216,15 @@ router.patch('/chat/tickets/:id/read', authRequired(), async (req, res) => {
     `UPDATE chat_tickets SET chat_status = ? WHERE id = ? ${fieldClause}`,
     params
   )
+  res.json({ ok: true })
+})
+
+// User can escalate status manually
+router.patch('/chat/tickets/:id/status', authRequired(), async (req, res) => {
+  const ticketId = req.params.id
+  const status = req.body?.status
+  if (!['Baru', 'Proses', 'Selesai'].includes(status)) return res.status(400).json({ message: 'Status tidak valid' })
+  await pool.execute('UPDATE chat_tickets SET chat_status = ? WHERE id = ? AND user_id = ?', [status, ticketId, req.user.id])
   res.json({ ok: true })
 })
 

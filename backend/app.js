@@ -5,6 +5,7 @@ import helmet from 'helmet'
 import morgan from 'morgan'
 import dotenv from 'dotenv'
 import cookieParser from 'cookie-parser'
+import rateLimit from 'express-rate-limit'
 
 import authRoutes from './routes/auth.js'
 import ticketRoutes from './routes/tickets.js'
@@ -15,11 +16,38 @@ import { createSocket } from './socket.js'
 
 dotenv.config()
 
+// Allow all origins in dev if CORS_ORIGIN not set. Use comma-separated list; '*' means allow any.
+const corsOrigins = (process.env.CORS_ORIGIN || '*')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+const cookieSecure = process.env.COOKIE_SECURE === 'true'
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+
 const app = express()
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Credentials', 'true')
+  next()
+})
 app.use(helmet())
 app.use(
   cors({
-    origin: (origin, cb) => cb(null, origin || 'http://localhost:4000'), // reflect origin for credentialed requests
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true) // mobile / curl / same-origin
+      if (corsOrigins.includes('*')) return cb(null, true)
+      const allowed = corsOrigins.some((o) => {
+        if (o === origin) return true
+        if (o.endsWith('*')) return origin.startsWith(o.slice(0, -1))
+        return false
+      })
+      cb(allowed ? null : new Error('Not allowed by CORS'), allowed)
+    },
     credentials: true,
   })
 )
@@ -30,8 +58,8 @@ app.use(morgan('dev'))
 
 app.get('/health', (req, res) => res.json({ ok: true }))
 // Auth available at /login and /auth/login
-app.use('/', authRoutes)
-app.use('/auth', authRoutes)
+app.use('/', authLimiter, authRoutes)
+app.use('/auth', authLimiter, authRoutes)
 // API routes with /api prefix (matching mobile app)
 app.use('/api', ticketRoutes)
 app.use('/api', deviceRoutes)

@@ -5,6 +5,7 @@ dotenv.config()
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret'
 const COOKIE_NAME = 'token'
+const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true'
 
 export function signToken(payload, opts = {}) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES || '30d', ...opts })
@@ -14,7 +15,7 @@ export function setAuthCookie(res, token) {
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: false, // set true if behind https
+    secure: COOKIE_SECURE,
     maxAge: 30 * 24 * 60 * 60 * 1000,
     path: '/',
   })

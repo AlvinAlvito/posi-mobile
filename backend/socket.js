@@ -74,7 +74,9 @@ export function createSocket(httpServer) {
         const userId = rows[0]?.user_id
         if (userId) {
           const tokens = await query('SELECT token FROM chat_device_tokens WHERE user_id = ? AND revoked_at IS NULL', [userId])
-          await sendPush(tokens.map((t) => t.token), {
+          const tokenList = tokens.map((t) => t.token)
+          console.log('[push] admin->user', { ticketId, userId, tokens: tokenList.length })
+          await sendPush(tokenList, {
             title: 'Pesan baru dari admin',
             body: text.slice(0, 80),
             data: { ticketId: String(ticketId) },
