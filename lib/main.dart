@@ -5,6 +5,8 @@ import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'http_adapter.dart' as http_adapter;
 import 'dart:async';
 import 'dart:convert';
@@ -18,11 +20,14 @@ class ApiClient {
               'POSI_API_BASE',
               defaultValue: '',
             ) {
-    final fallback = _baseUrl.isNotEmpty
-        ? _baseUrl
-        : (kIsWeb
-            ? '${Uri.base.scheme}://${Uri.base.host}:${Uri.base.hasPort ? 4000 : 4000}'
-            : 'http://10.0.2.2:4000');
+    final envBase = dotenv.maybeGet('POSI_API_BASE') ?? '';
+    final fallback = envBase.isNotEmpty
+        ? envBase
+        : (_baseUrl.isNotEmpty
+            ? _baseUrl
+            : (kIsWeb
+                ? '${Uri.base.scheme}://${Uri.base.host}:4000'
+                : 'http://10.0.2.2:4000'));
     _baseUrlResolved = fallback;
     final jar = CookieJar();
     _cookieJar = jar;
@@ -180,6 +185,51 @@ class ApiClient {
     }
   }
 
+  Future<LoginResult> loginWithGoogle(String idToken) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/auth/google',
+        data: {'idToken': idToken},
+        options: Options(headers: {'Accept': 'application/json'}),
+      );
+      final data = res.data;
+      if (res.statusCode != null && res.statusCode! >= 400) {
+        final msg = data?['message'] as String? ?? 'Login Google gagal';
+        return LoginResult(false, msg);
+      }
+      final token = data?['token'] as String?;
+      if (token != null) {
+        _authToken = token;
+        _dio.options.headers['Authorization'] = 'Bearer $token';
+      }
+      return LoginResult(true, null);
+    } catch (e) {
+      return LoginResult(false, 'Login Google gagal: $e');
+    }
+  }
+  Future<LoginResult> loginWithGoogleAccess(String accessToken) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '/auth/google',
+        data: {'accessToken': accessToken},
+        options: Options(headers: {'Accept': 'application/json'}),
+      );
+      final data = res.data;
+      if (res.statusCode != null && res.statusCode! >= 400) {
+        final msg = data?['message'] as String? ?? 'Login Google gagal';
+        return LoginResult(false, msg);
+      }
+      final token = data?['token'] as String?;
+      if (token != null) {
+        _authToken = token;
+        _dio.options.headers['Authorization'] = 'Bearer $token';
+      }
+      return LoginResult(true, null);
+    } catch (e) {
+      return LoginResult(false, 'Login Google gagal: $e');
+    }
+  }
+
   Future<void> logout() async {
     try {
       await _dio.post('/logout');
@@ -293,6 +343,7 @@ class LoginResult {
 }
 
 final apiClient = ApiClient();
+late final GoogleSignIn _googleSignIn;
 
 class CompetitionOption {
   CompetitionOption({required this.id, required this.title});
@@ -452,7 +503,15 @@ class ProfileData {
   }
 }
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: '.env');
+  final googleClientId = dotenv.maybeGet('GOOGLE_WEB_CLIENT_ID') ??
+      const String.fromEnvironment('GOOGLE_WEB_CLIENT_ID', defaultValue: '');
+  _googleSignIn = GoogleSignIn(
+    scopes: ['email'],
+    clientId: googleClientId.isNotEmpty ? googleClientId : null,
+  );
   runApp(const PosiMobileApp());
 }
 
@@ -567,6 +626,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _loading = false;
+  bool _googleLoading = false;
   String? _error;
 
   @override
@@ -634,6 +694,52 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _error = 'Gagal login: $e';
         _loading = false;
+      });
+    }
+  }
+
+  Future<void> _handleGoogleLogin() async {
+    setState(() {
+      _googleLoading = true;
+      _error = null;
+    });
+    try {
+      final acct = await _googleSignIn.signIn();
+      if (acct == null) {
+        setState(() => _googleLoading = false);
+        return;
+      }
+      final auth = await acct.authentication;
+      final idToken = auth.idToken;
+      final accessToken = auth.accessToken;
+      if (idToken == null && accessToken == null) {
+        setState(() {
+          _googleLoading = false;
+          _error = 'Token Google tidak ditemukan';
+        });
+        return;
+      }
+      LoginResult result;
+      if (idToken != null) {
+        result = await apiClient.loginWithGoogle(idToken);
+      } else {
+        result = await apiClient.loginWithGoogleAccess(accessToken!);
+      }
+      if (!mounted) return;
+      if (result.ok) {
+        setState(() => _googleLoading = false);
+        widget.onLogin();
+      } else {
+        setState(() {
+          _googleLoading = false;
+          _error = result.message ?? 'Login Google gagal';
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _googleLoading = false;
+        _error = 'Login Google gagal: $e';
       });
     }
   }
@@ -737,19 +843,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 14),
                 _GoogleLoginButton(
-                  onPressed: _loading
-                      ? null
-                      : () async {
-                          final url = "${apiClient.baseUrl}/auth/google";
-                          if (await canLaunchUrlString(url)) {
-                            await launchUrlString(url,
-                                mode: LaunchMode.externalApplication);
-                          } else {
-                            if (mounted)
-                              setState(() =>
-                                  _error = 'Tidak bisa membuka Google Login');
-                          }
-                        },
+                  onPressed:
+                      (_loading || _googleLoading) ? null : _handleGoogleLogin,
                 ),
                 const SizedBox(height: 12),
                 TextButton(
