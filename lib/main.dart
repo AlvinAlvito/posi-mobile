@@ -1069,54 +1069,115 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
-class HomeTab extends StatelessWidget {
+class HomeTab extends StatefulWidget {
   const HomeTab({super.key});
+
+  @override
+  State<HomeTab> createState() => _HomeTabState();
+}
+
+class _HomeTabState extends State<HomeTab> {
+  String? _profileName;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfileName();
+  }
+
+  Future<void> _loadProfileName() async {
+    try {
+      final p = await apiClient.fetchProfile();
+      if (!mounted) return;
+      setState(() => _profileName = p.name.trim().isEmpty ? null : p.name.trim());
+    } catch (_) {
+      // ignore; fallback to Pengguna
+    }
+  }
+
+  String _greetingText() {
+    final hour = DateTime.now().hour;
+    String greet;
+    if (hour >= 5 && hour < 12) {
+      greet = 'Selamat Pagi';
+    } else if (hour >= 12 && hour < 17) {
+      greet = 'Selamat Siang';
+    } else if (hour >= 17 && hour < 21) {
+      greet = 'Selamat Sore';
+    } else {
+      greet = 'Selamat Malam';
+    }
+    final display = (_profileName ?? '').trim().isEmpty ? 'Pengguna' : _profileName!;
+    return '$greet, $display';
+  }
 
   @override
   Widget build(BuildContext context) {
     return _GradientBackground(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+      child: SafeArea(
         child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _HeroInfoCard(
-          title: 'Beranda',
-          subtitle:
-              'Ringkasan aktivitas POSI, tiket aktif, dan pintasan cepat di sini.',
-          gradient: [Color(0xFF7EE8FA), Color(0xFF46A6FF)],
-        ),
-        const SizedBox(height: 14),
-        const _StatRow(),
-        const SizedBox(height: 14),
-        const _HomeSectionTitle('Kompetisi Mendatang'),
-        const SizedBox(height: 10),
-        const _UpcomingList(),
-        const SizedBox(height: 18),
-        const _HomeSectionTitle('Kisah Sukses Peserta'),
-        const SizedBox(height: 12),
-        const _QuotesRow(),
-        const SizedBox(height: 20),
-            const _HomeSectionTitle('Platform Belajar'),
-            const SizedBox(height: 10),
-            const _BannerCard(
-              title: 'Taklukkan ujian bersama mimpi.mu',
-              subtitle:
-                  'Persiapan OSN, KSM, UTBK, dan analisis AI yang adaptif.',
-              gradient: [Color(0xFF6CC5FF), Color(0xFF3E8BFF)],
-              icon: Icons.auto_awesome,
-              bullets: [
-                'Persiapan Lengkap TKA & UTBK',
-                'Pelatihan Olimpiade Sains (OSN)',
-                'Materi Olimpiade Madrasah (KSM)',
-                'Analisis Performa Berbasis AI',
-              ],
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: _TopBar(
+                name: _profileName ?? 'Pengguna',
+                onLogout: () async {
+                  await apiClient.logout();
+                  if (mounted) {
+                    Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const _Root()),
+                        (route) => false);
+                  }
+                },
+              ),
             ),
-            const SizedBox(height: 14),
-            const _HomeSectionTitle('POSI Store'),
-            const SizedBox(height: 10),
-            const _StoreCard(),
-            const SizedBox(height: 20),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _HeroInfoCard(
+                      title: _greetingText(),
+                      subtitle:
+                          'Aplikasi Mobile POSI adalah bagian dari www.posi.id untuk info dan chat admin.',
+                      gradient: const [Color(0xFF7EE8FA), Color(0xFF46A6FF)],
+                    ),
+                    const SizedBox(height: 14),
+                    const _StatRow(),
+                    const SizedBox(height: 14),
+                    const _HomeSectionTitle('Kompetisi Mendatang'),
+                    const SizedBox(height: 10),
+                    const _UpcomingList(),
+                    const SizedBox(height: 18),
+                    const _HomeSectionTitle('Kisah Sukses Peserta'),
+                    const SizedBox(height: 12),
+                    const _QuotesRow(),
+                    const SizedBox(height: 20),
+                    const _HomeSectionTitle('Platform Belajar'),
+                    const SizedBox(height: 10),
+                    const _BannerCard(
+                      title: 'Taklukkan ujian bersama mimpi.mu',
+                      subtitle:
+                          'Persiapan OSN, KSM, UTBK, dan analisis AI yang adaptif.',
+                      gradient: [Color(0xFF6CC5FF), Color(0xFF3E8BFF)],
+                      icon: Icons.auto_awesome,
+                      bullets: [
+                        'Persiapan Lengkap TKA & UTBK',
+                        'Pelatihan Olimpiade Sains (OSN)',
+                        'Materi Olimpiade Madrasah (KSM)',
+                        'Analisis Performa Berbasis AI',
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    const _HomeSectionTitle('POSI Store'),
+                    const SizedBox(height: 10),
+                    const _StoreCard(),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1511,6 +1572,8 @@ class _ChatTabState extends State<ChatTab> {
                 t.competitionTitle.toLowerCase().contains(_search) ||
                 t.summary.toLowerCase().contains(_search))
             .toList();
+    final displayName =
+        (_profile?.name ?? '').trim().isEmpty ? 'Pengguna' : _profile!.name;
 
     return WillPopScope(
       onWillPop: () async {
@@ -1521,214 +1584,243 @@ class _ChatTabState extends State<ChatTab> {
         return true;
       },
       child: _GradientBackground(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
-          child: (_showDetail && activeTicket != null)
-              ? Builder(builder: (_) {
-                final ticket = activeTicket!;
-                final waNumber = _whatsAppNumberFor(ticket);
-                final canWa = waNumber != null;
-                return Column(
-                  key: const ValueKey('detail'),
-                  children: [
-                    _ChatAppBar(
-                      title: ticket.competitionTitle,
-                      subtitle: ticket.topic,
-                      color: const Color(0xFF1E88E5),
-                      onBack: () => setState(() => _showDetail = false),
-                      onCall: canWa ? () => _openWhatsApp(ticket) : null,
-                      onVideo: canWa ? () => _openWhatsApp(ticket) : null,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x22000000),
+                      blurRadius: 10,
+                      offset: Offset(0, 6),
+                    )
+                  ],
+                ),
+                child: _TopBar(
+                  name: displayName,
+                  onLogout: () async {
+                    await apiClient.logout();
+                    if (mounted) {
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const _Root()),
+                        (route) => false,
+                      );
+                    }
+                  },
+                ),
+              ),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                child: (_showDetail && activeTicket != null)
+            ? Builder(builder: (_) {
+              final ticket = activeTicket!;
+              final waNumber = _whatsAppNumberFor(ticket);
+              final canWa = waNumber != null;
+              return Column(
+                key: const ValueKey('detail'),
+                children: [
+                  _ChatAppBar(
+                    title: ticket.competitionTitle,
+                    subtitle: ticket.topic,
+                    color: const Color(0xFF1E88E5),
+                    onBack: () => setState(() => _showDetail = false),
+                    onCall: canWa ? () => _openWhatsApp(ticket) : null,
+                    onVideo: canWa ? () => _openWhatsApp(ticket) : null,
+                  ),
+                  if (_profile != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                      child: _UserInfoCard(
+                        profile: _profile!,
+                        ticket: ticket,
+                      ),
                     ),
-                      if (_profile != null)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                          child: _UserInfoCard(
-                            profile: _profile!,
-                            ticket: ticket,
-                          ),
-                        ),
-                      Expanded(
-                        child: Container(
-                          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8FBFF),
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(color: const Color(0xFFD4E4FF)),
-                          ),
-                          child: Column(
-                            children: [
-                              Expanded(
-                                  child: _loadingMessages
-                                      ? const Center(
-                                          child: CircularProgressIndicator())
-                                      : ListView.builder(
-                                          controller: _msgScroll,
-                                          itemCount: entries.length,
-                                          reverse: false,
-                                          itemBuilder: (_, i) {
-                                            final entry = entries[i];
-                                            if (entry.type == _EntryType.date) {
-                                              return Padding(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                        vertical: 10),
-                                                child: Center(
-                                                  child: Container(
-                                                    padding: const EdgeInsets
-                                                        .symmetric(
-                                                        horizontal: 12,
-                                                        vertical: 6),
-                                                    decoration: BoxDecoration(
-                                                      color: const Color(
-                                                          0xFFEAF2FF),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              12),
-                                                    ),
-                                                    child: Text(
-                                                        entry.label ?? '',
-                                                        style: const TextStyle(
-                                                            color: Color(
-                                                                0xFF526380),
-                                                            fontSize: 12,
-                                                            fontWeight:
-                                                                FontWeight
-                                                                    .w600)),
+                  Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FBFF),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: const Color(0xFFD4E4FF)),
+                      ),
+                      child: Column(
+                        children: [
+                          Expanded(
+                              child: _loadingMessages
+                                  ? const Center(
+                                      child: CircularProgressIndicator())
+                                  : ListView.builder(
+                                      controller: _msgScroll,
+                                      itemCount: entries.length,
+                                      reverse: false,
+                                      itemBuilder: (_, i) {
+                                        final entry = entries[i];
+                                        if (entry.type == _EntryType.date) {
+                                          return Padding(
+                                            padding:
+                                                const EdgeInsets.symmetric(
+                                                    vertical: 10),
+                                            child: Center(
+                                              child: Container(
+                                                padding: const EdgeInsets
+                                                    .symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 6),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(
+                                                      0xFFEAF2FF),
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          12),
+                                                ),
+                                                child: Text(
+                                                    entry.label ?? '',
+                                                    style: const TextStyle(
+                                                        color: Color(
+                                                            0xFF526380),
+                                                        fontSize: 12,
+                                                        fontWeight:
+                                                            FontWeight
+                                                                .w600)),
+                                              ),
+                                            ),
+                                          );
+                                        }
+
+                                        final m = entry.message!;
+                                        final isMe = m.senderType == 'user';
+                                        final time = _parseTs(m.createdAt);
+                                        final timeText = time != null
+                                            ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
+                                            : '';
+                                        return Align(
+                                          alignment: isMe
+                                              ? Alignment.centerRight
+                                              : Alignment.centerLeft,
+                                          child: Container(
+                                            margin:
+                                                const EdgeInsets.symmetric(
+                                                    vertical: 6),
+                                            padding:
+                                                const EdgeInsets.symmetric(
+                                                    vertical: 10,
+                                                    horizontal: 14),
+                                            constraints:
+                                                const BoxConstraints(
+                                                    maxWidth: 300),
+                                            decoration: BoxDecoration(
+                                              color: isMe
+                                                  ? const Color(0xFF1E88E5)
+                                                  : const Color(0xFFEFF4FF),
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  m.text,
+                                                  style: TextStyle(
+                                                    height: 1.3,
+                                                    color: isMe
+                                                        ? Colors.white
+                                                        : const Color(
+                                                            0xFF1A2F4D),
                                                   ),
                                                 ),
-                                              );
-                                            }
-
-                                            final m = entry.message!;
-                                            final isMe = m.senderType == 'user';
-                                            final time = _parseTs(m.createdAt);
-                                            final timeText = time != null
-                                                ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
-                                                : '';
-                                            return Align(
-                                              alignment: isMe
-                                                  ? Alignment.centerRight
-                                                  : Alignment.centerLeft,
-                                              child: Container(
-                                                margin:
-                                                    const EdgeInsets.symmetric(
-                                                        vertical: 6),
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                        vertical: 10,
-                                                        horizontal: 14),
-                                                constraints:
-                                                    const BoxConstraints(
-                                                        maxWidth: 300),
-                                                decoration: BoxDecoration(
-                                                  color: isMe
-                                                      ? const Color(0xFF1E88E5)
-                                                      : const Color(0xFFEFF4FF),
-                                                  borderRadius:
-                                                      BorderRadius.circular(16),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  timeText,
+                                                  style: TextStyle(
+                                                    color: isMe
+                                                        ? Colors.white
+                                                            .withOpacity(
+                                                                0.8)
+                                                        : const Color(
+                                                                0xFF1A2F4D)
+                                                            .withOpacity(
+                                                                0.6),
+                                                    fontSize: 11,
+                                                  ),
                                                 ),
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(
-                                                      m.text,
-                                                      style: TextStyle(
-                                                        height: 1.3,
-                                                        color: isMe
-                                                            ? Colors.white
-                                                            : const Color(
-                                                                0xFF1A2F4D),
-                                                      ),
-                                                    ),
-                                                    const SizedBox(height: 4),
-                                                    Text(
-                                                      timeText,
-                                                      style: TextStyle(
-                                                        color: isMe
-                                                            ? Colors.white
-                                                                .withOpacity(
-                                                                    0.8)
-                                                            : const Color(
-                                                                    0xFF1A2F4D)
-                                                                .withOpacity(
-                                                                    0.6),
-                                                        fontSize: 11,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        )),
-                              Row(
-                                children: [
-                                  SizedBox(
-                                    height: 48,
-                                    width: 48,
-                                    child: OutlinedButton(
-                                      onPressed: _sending ? null : () {},
-                                      style: OutlinedButton.styleFrom(
-                                        padding: EdgeInsets.zero,
-                                        shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(14)),
-                                        side: const BorderSide(
-                                            color: Color(0xFFD4E4FF)),
-                                      ),
-                                      child: const Icon(Icons.attach_file,
-                                          color: Color(0xFF1E88E5)),
-                                    ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    )),
+                          Row(
+                            children: [
+                              SizedBox(
+                                height: 48,
+                                width: 48,
+                                child: OutlinedButton(
+                                  onPressed: _sending ? null : () {},
+                                  style: OutlinedButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(14)),
+                                    side: const BorderSide(
+                                        color: Color(0xFFD4E4FF)),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _controller,
-                                      enabled: !_sending,
-                                      decoration: const InputDecoration(
-                                        hintText: "Ketik pesan",
-                                        contentPadding: EdgeInsets.symmetric(
-                                            vertical: 12, horizontal: 14),
-                                      ),
-                                      onSubmitted: (_) => _sendMessage(),
-                                    ),
+                                  child: const Icon(Icons.attach_file,
+                                      color: Color(0xFF1E88E5)),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: TextField(
+                                  controller: _controller,
+                                  enabled: !_sending,
+                                  decoration: const InputDecoration(
+                                    hintText: "Ketik pesan",
+                                    contentPadding: EdgeInsets.symmetric(
+                                        vertical: 12, horizontal: 14),
                                   ),
-                                  const SizedBox(width: 10),
-                                  SizedBox(
-                                    height: 48,
-                                    width: 48,
-                                    child: ElevatedButton(
-                                      onPressed: _sending ? null : _sendMessage,
-                                      style: ElevatedButton.styleFrom(
-                                        padding: EdgeInsets.zero,
-                                        shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(14)),
-                                      ),
-                                      child: _sending
-                                          ? const SizedBox(
-                                              width: 18,
-                                              height: 18,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                color: Colors.white,
-                                              ),
-                                            )
-                                          : const Icon(Icons.send_rounded,
-                                              color: Colors.white),
-                                    ),
+                                  onSubmitted: (_) => _sendMessage(),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              SizedBox(
+                                height: 48,
+                                width: 48,
+                                child: ElevatedButton(
+                                  onPressed: _sending ? null : _sendMessage,
+                                  style: ElevatedButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(14)),
                                   ),
-                                ],
+                                  child: _sending
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Icon(Icons.send_rounded,
+                                          color: Colors.white),
+                                ),
                               ),
                             ],
                           ),
-                        ),
+                        ],
                       ),
-                    ],
-                  );
-                })
+                    ),
+                  ),
+                ],
+              );
+            })
             : Column(
                 key: const ValueKey('list'),
                 children: [
@@ -1781,67 +1873,72 @@ class _ChatTabState extends State<ChatTab> {
                     child: Container(
                       decoration: BoxDecoration(
                         color: const Color(0xFFF5F8FF),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFD4E4FF)),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFD4E4FF)),
+                      ),
+                      child: TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Cari chat atau tiket',
+                          prefixIcon:
+                              const Icon(Icons.search, color: Color(0xFF7B8CA7)),
+                          border: InputBorder.none,
+                          contentPadding:
+                              const EdgeInsets.symmetric(vertical: 12),
                         ),
-                        child: TextField(
-                          decoration: InputDecoration(
-                            hintText: 'Cari chat atau tiket',
-                            prefixIcon: const Icon(Icons.search,
-                                color: Color(0xFF7B8CA7)),
-                            border: InputBorder.none,
-                            contentPadding:
-                                const EdgeInsets.symmetric(vertical: 12),
+                        onChanged: (v) =>
+                            setState(() => _search = v.trim().toLowerCase()),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: _loadingTickets
+                        ? const Center(child: CircularProgressIndicator())
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
+                            itemBuilder: (_, i) {
+                              final t = filteredTickets[i];
+                              return _ChatListItem(
+                                ticket: t,
+                                unread: _unreadTickets.contains(t.id),
+                                onTap: () => setState(() {
+                                  _activeId = t.id;
+                                  _showDetail = true;
+                                  _forceScrollNextLoad = true;
+                                  apiClient.joinTicketRoom(t.id);
+                                  _unreadTickets.remove(t.id);
+                                  apiClient.markTicketRead(t.id);
+                                  _loadMessages(t.id);
+                                }),
+                              );
+                            },
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 4),
+                            itemCount: filteredTickets.length,
                           ),
-                          onChanged: (v) =>
-                              setState(() => _search = v.trim().toLowerCase()),
-                        ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 20, bottom: 20),
+                    child: Align(
+                      alignment: Alignment.bottomRight,
+                      child: FloatingActionButton.extended(
+                        backgroundColor: const Color(0xFF25D366),
+                        foregroundColor: Colors.white,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Buat percakapan'),
+                        onPressed: _openNewChatPage,
                       ),
                     ),
-                    Expanded(
-                      child: _loadingTickets
-                          ? const Center(child: CircularProgressIndicator())
-                          : ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
-                              itemBuilder: (_, i) {
-                                final t = filteredTickets[i];
-                                return _ChatListItem(
-                                  ticket: t,
-                                  unread: _unreadTickets.contains(t.id),
-                                  onTap: () => setState(() {
-                                    _activeId = t.id;
-                                    _showDetail = true;
-                                    _forceScrollNextLoad = true;
-                                    apiClient.joinTicketRoom(t.id);
-                                    _unreadTickets.remove(t.id);
-                                    apiClient.markTicketRead(t.id);
-                                    _loadMessages(t.id);
-                                  }),
-                                );
-                              },
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 4),
-                              itemCount: filteredTickets.length,
-                            ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(right: 20, bottom: 20),
-                      child: Align(
-                        alignment: Alignment.bottomRight,
-                        child: FloatingActionButton.extended(
-                          backgroundColor: const Color(0xFF25D366),
-                          foregroundColor: Colors.white,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Buat percakapan'),
-                          onPressed: _openNewChatPage,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
+            ),
+              ),
+          ],
+          
         ),
       ),
-    );
+    ),
+  );
   }
 
   void _openNewChatPage() {
@@ -2107,148 +2204,192 @@ class _SettingsTabState extends State<SettingsTab> {
   @override
   Widget build(BuildContext context) {
     return _GradientBackground(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return FutureBuilder<ProfileData>(
-            future: _profileFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      'Gagal memuat profil: ${snapshot.error}',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.red),
+      child: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return FutureBuilder<ProfileData>(
+              future: _profileFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        'Gagal memuat profil: ${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red),
+                      ),
                     ),
-                  ),
-                );
-              }
-              final profile = snapshot.data!;
-              return SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const _TitleRow(title: 'Profil'),
-                      const SizedBox(height: 16),
-                      Center(
-                        child: Column(
-                          children: [
-                            Container(
-                              width: 92,
-                              height: 92,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    Color(0xFF1E88E5),
-                                    Color(0xFF6CC5FF)
+                  );
+                }
+                final profile = snapshot.data!;
+                final displayName =
+                    profile.name.isEmpty ? 'Pengguna' : profile.name;
+                return Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Color(0x22000000),
+                            blurRadius: 10,
+                            offset: Offset(0, 6),
+                          )
+                        ],
+                      ),
+                      child: _TopBar(
+                        name: displayName,
+                        onLogout: widget.onLogout,
+                      ),
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                        child: ConstrainedBox(
+                          constraints:
+                              BoxConstraints(minHeight: constraints.maxHeight),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 4),
+                              Center(
+                                child: Column(
+                                  children: [
+                                    Container(
+                                      width: 92,
+                                      height: 92,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        gradient: const LinearGradient(
+                                          colors: [
+                                            Color(0xFF1E88E5),
+                                            Color(0xFF6CC5FF)
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(
+                                              color: Color(0x331E88E5),
+                                              blurRadius: 16,
+                                              offset: Offset(0, 10)),
+                                        ],
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          _initials(profile.name),
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 28,
+                                              fontWeight: FontWeight.w800),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(displayName,
+                                        style: const TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.w700)),
+                                    const SizedBox(height: 4),
+                                    Text(profile.email,
+                                        style: const TextStyle(
+                                            color: Color(0xFF526380))),
                                   ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                                boxShadow: const [
-                                  BoxShadow(
-                                      color: Color(0x331E88E5),
-                                      blurRadius: 16,
-                                      offset: Offset(0, 10)),
-                                ],
-                              ),
-                              child: Center(
-                                child: Text(
-                                  _initials(profile.name),
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.w800),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                                profile.name.isEmpty
-                                    ? 'Pengguna'
-                                    : profile.name,
-                                style: const TextStyle(
-                                    fontSize: 20, fontWeight: FontWeight.w700)),
-                            const SizedBox(height: 4),
-                            Text(profile.email,
-                                style:
-                                    const TextStyle(color: Color(0xFF526380))),
-                          ],
+                              const SizedBox(height: 18),
+                              _GlassCard(
+                                child: Column(
+                                  children: [
+                                    _infoRow(
+                                        'Nomor telepon', profile.whatsapp),
+                                    const Divider(
+                                        height: 20,
+                                        color: Color(0xFFE0E8F5)),
+                                    _infoRow('Tanggal lahir',
+                                        profile.tanggalLahir,
+                                        isDate: true),
+                                    const Divider(
+                                        height: 20,
+                                        color: Color(0xFFE0E8F5)),
+                                    _infoRow(
+                                        'Jenis kelamin', profile.jenisKelamin),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              _GlassCard(
+                                child: Column(
+                                  children: [
+                                    _infoRow('Agama', profile.agama),
+                                    const Divider(
+                                        height: 20,
+                                        color: Color(0xFFE0E8F5)),
+                                    _infoRow('Level', profile.levelName),
+                                    const Divider(
+                                        height: 20,
+                                        color: Color(0xFFE0E8F5)),
+                                    _infoRow('Kelas', profile.kelasName),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              _GlassCard(
+                                child: Column(
+                                  children: [
+                                    _infoRow(
+                                        'Provinsi', profile.provinsiName),
+                                    const Divider(
+                                        height: 20,
+                                        color: Color(0xFFE0E8F5)),
+                                    _infoRow(
+                                        'Kabupaten', profile.kabupatenName),
+                                    const Divider(
+                                        height: 20,
+                                        color: Color(0xFFE0E8F5)),
+                                    _infoRow(
+                                        'Kecamatan', profile.kecamatanName),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              _GlassCard(
+                                child: Column(
+                                  children: [
+                                    _infoRow('Sekolah/Institusi',
+                                        profile.namaSekolah),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.logout_rounded),
+                                label: const Text('Keluar'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1E88E5),
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size.fromHeight(50),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14)),
+                                ),
+                                onPressed: widget.onLogout,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      _GlassCard(
-                        child: Column(
-                          children: [
-                            _infoRow('Nomor telepon', profile.whatsapp),
-                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
-                            _infoRow('Tanggal lahir', profile.tanggalLahir,
-                                isDate: true),
-                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
-                            _infoRow('Jenis kelamin', profile.jenisKelamin),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _GlassCard(
-                        child: Column(
-                          children: [
-                            _infoRow('Agama', profile.agama),
-                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
-                            _infoRow('Level', profile.levelName),
-                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
-                            _infoRow('Kelas', profile.kelasName),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _GlassCard(
-                        child: Column(
-                          children: [
-                            _infoRow('Provinsi', profile.provinsiName),
-                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
-                            _infoRow('Kabupaten', profile.kabupatenName),
-                            const Divider(height: 20, color: Color(0xFFE0E8F5)),
-                            _infoRow('Kecamatan', profile.kecamatanName),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _GlassCard(
-                        child: Column(
-                          children: [
-                            _infoRow('Sekolah/Institusi', profile.namaSekolah),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.logout_rounded),
-                        label: const Text('Keluar'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1E88E5),
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size.fromHeight(50),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14)),
-                        ),
-                        onPressed: widget.onLogout,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -2270,11 +2411,13 @@ class _HeroInfoCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.gradient,
+    this.trailing,
   });
 
   final String title;
   final String subtitle;
   final List<Color> gradient;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -2296,29 +2439,106 @@ class _HeroInfoCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              letterSpacing: -0.1,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    height: 1.35,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: const TextStyle(
-              color: Colors.white70,
-              height: 1.35,
-            ),
-          ),
+          if (trailing != null) trailing!,
         ],
       ),
     );
+  }
+}
+
+class _TopBar extends StatelessWidget {
+  const _TopBar({required this.name, this.onLogout});
+
+  final String name;
+  final VoidCallback? onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    final initials = _initials(name);
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF143155),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Container(
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x221E88E5),
+                blurRadius: 10,
+                offset: Offset(0, 6),
+              )
+            ],
+          ),
+          child: CircleAvatar(
+            radius: 18,
+            backgroundColor: const Color(0xFF1E88E5),
+            child: Text(
+              initials,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        if (onLogout != null)
+          TextButton.icon(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              foregroundColor: const Color(0xFF1E88E5),
+            ),
+            onPressed: onLogout,
+            icon: const Icon(Icons.logout, size: 18),
+            label: const Text('Logout'),
+          ),
+      ],
+    );
+  }
+
+  String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.length == 1) return parts.first.isNotEmpty ? parts.first[0].toUpperCase() : '?';
+    final a = parts[0].isNotEmpty ? parts[0][0] : '';
+    final b = parts[1].isNotEmpty ? parts[1][0] : '';
+    final res = (a + b).toUpperCase();
+    return res.isEmpty ? '?' : res;
   }
 }
 
