@@ -31,6 +31,10 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> _initPush() async {
+  if (kIsWeb) {
+    // Skip Firebase init on web dev unless configured with firebase_options.dart
+    return;
+  }
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
@@ -43,8 +47,7 @@ Future<void> _initPush() async {
           AndroidFlutterLocalNotificationsPlugin>()
       ?.createNotificationChannel(_notifChannel);
 
-  await FirebaseMessaging.instance
-      .setForegroundNotificationPresentationOptions(
+  await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
     alert: true,
     badge: true,
     sound: true,
@@ -73,6 +76,7 @@ Future<void> _showLocalNotification(RemoteMessage message) async {
 }
 
 Future<void> _registerFcmTokenIfAuthenticated() async {
+  if (kIsWeb) return;
   try {
     final perm = await FirebaseMessaging.instance.requestPermission();
     if (perm.authorizationStatus == AuthorizationStatus.denied) return;
@@ -310,6 +314,7 @@ class ApiClient {
       return LoginResult(false, 'Login Google gagal: $e');
     }
   }
+
   Future<LoginResult> loginWithGoogleAccess(String accessToken) async {
     try {
       final res = await _dio.post<Map<String, dynamic>>(
@@ -345,6 +350,7 @@ class ApiClient {
     _socket = null;
     await clearPersistedToken();
   }
+
   Future<List<CompetitionOption>> fetchCompetitions() async {
     final res = await _dio.get<Map<String, dynamic>>('/api/competitions');
     if (res.statusCode != null && res.statusCode! >= 400) {
@@ -366,8 +372,8 @@ class ApiClient {
     String? token = _authToken;
     if (token == null && _cookieJar != null) {
       try {
-        final cookies = await _cookieJar!
-            .loadForRequest(Uri.parse(_baseUrlResolved));
+        final cookies =
+            await _cookieJar!.loadForRequest(Uri.parse(_baseUrlResolved));
         for (final c in cookies) {
           if (c.name.toLowerCase() == 'token' && c.value.isNotEmpty) {
             token = c.value;
@@ -411,8 +417,7 @@ class ApiClient {
 
     _socket!.on('message:new', (data) {
       if (data is Map) {
-        final message =
-            ChatMessageData.fromJson(data.cast<String, dynamic>());
+        final message = ChatMessageData.fromJson(data.cast<String, dynamic>());
         final rawId = data['ticket_id'] ?? data['ticketId'];
         final ticketId = rawId is int
             ? rawId
@@ -478,6 +483,7 @@ class TicketData {
     required this.summary,
     required this.status,
     required this.competitionTitle,
+    this.competitionLocationType,
     this.lastMessage,
     this.lastMessageAt,
   });
@@ -487,6 +493,7 @@ class TicketData {
   final String summary;
   String status;
   final String competitionTitle;
+  final String? competitionLocationType;
   String? lastMessage;
   String? lastMessageAt;
 
@@ -497,11 +504,13 @@ class TicketData {
         status: (json['status'] ?? '').toString(),
         competitionTitle:
             (json['competitionTitle'] ?? 'Tanpa Kompetisi').toString(),
+        competitionLocationType:
+            (json['competitionLocationType'] ?? json['location_type'])
+                ?.toString(),
         lastMessage: json['lastMessage'] is Map
             ? (json['lastMessage']?['text'] as String?)
             : (json['lastMessage'] as String?) ?? json['summary']?.toString(),
-        lastMessageAt:
-            (json['lastMessageAt'] ?? json['updatedAt']) as String?,
+        lastMessageAt: (json['lastMessageAt'] ?? json['updatedAt']) as String?,
       );
 }
 
@@ -715,6 +724,13 @@ class _RootState extends State<_Root> {
   bool _loggedIn = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Auto-login jika token tersimpan dari sesi sebelumnya
+    _loggedIn = apiClient.authToken != null;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 320),
@@ -745,6 +761,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   bool _googleLoading = false;
   String? _error;
+  bool _obscure = true;
 
   @override
   void dispose() {
@@ -891,7 +908,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Login untuk mulai ngobrol dengan admin dan pantau tiket Anda.',
+                  'Masuk dengan akun POSI anda untuk mengakses fitur chat dan informasi seputar POSI.',
                   style: TextStyle(color: Color(0xFF9AB3D7)),
                 ),
                 const SizedBox(height: 24),
@@ -931,12 +948,19 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 8),
                 TextField(
                   controller: _passCtrl,
-                  obscureText: true,
+                  obscureText: _obscure,
                   enabled: !_loading,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: '********',
                     prefixIcon:
-                        Icon(Icons.lock_outline, color: Color(0xFF6E8BB6)),
+                        const Icon(Icons.lock_outline, color: Color(0xFF6E8BB6)),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscure ? Icons.visibility_off : Icons.visibility,
+                        color: const Color(0xFF6E8BB6),
+                      ),
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -967,7 +991,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextButton(
-                  onPressed: _loading ? null : () {},
+                  onPressed: _loading
+                      ? null
+                      : () => launchUrlString(
+                          'https://posi.id/forgot-password',
+                          mode: LaunchMode.externalApplication,
+                        ),
                   child: const Text(
                     'Lupa password?',
                     style: TextStyle(color: Color(0xFF8CB7FF)),
@@ -1114,6 +1143,34 @@ class _ChatTabState extends State<ChatTab> {
   final Set<int> _unreadTickets = {};
   bool _socketConnected = false;
 
+  String? _whatsAppNumberFor(TicketData ticket) {
+    final loc = (ticket.competitionLocationType ?? '').toLowerCase();
+    final topic = ticket.topic.toLowerCase();
+    final isOnline = loc.isEmpty || loc == 'online';
+    if (isOnline && topic == 'pendaftaran') return '081262739364';
+    if (isOnline && topic == 'pemesanan') return '082181185436';
+    if (loc == 'offline' && (topic == 'pendaftaran' || topic == 'pemesanan')) {
+      return '08116326878';
+    }
+    return null;
+  }
+
+  Future<void> _openWhatsApp(TicketData ticket) async {
+    final number = _whatsAppNumberFor(ticket);
+    if (number == null) return;
+    final normalized = number.trim().replaceFirst(RegExp(r'^0'), '62');
+    final msg =
+        Uri.encodeComponent('[POSI] Tiket ${ticket.id} - ${ticket.topic}');
+    final url = 'https://wa.me/$normalized?text=$msg';
+    if (await canLaunchUrlString(url)) {
+      await launchUrlString(url, mode: LaunchMode.externalApplication);
+    } else {
+      final fallback =
+          'https://api.whatsapp.com/send?phone=$normalized&text=$msg&app_absent=0';
+      await launchUrlString(fallback, mode: LaunchMode.externalApplication);
+    }
+  }
+
   DateTime? _parseTs(String? raw) {
     if (raw == null || raw.isEmpty) return null;
     final dt = DateTime.tryParse(raw);
@@ -1121,19 +1178,19 @@ class _ChatTabState extends State<ChatTab> {
     return dt.isUtc ? dt.toLocal() : dt;
   }
 
-int _tsMillis(String? ts) {
-  if (ts == null || ts.isEmpty) return 0;
-  final dt = _parseTs(ts);
-  if (dt == null) return 0;
-  return dt.millisecondsSinceEpoch;
-}
+  int _tsMillis(String? ts) {
+    if (ts == null || ts.isEmpty) return 0;
+    final dt = _parseTs(ts);
+    if (dt == null) return 0;
+    return dt.millisecondsSinceEpoch;
+  }
 
-DateTime? _parseTsLocal(String? raw) {
-  if (raw == null || raw.isEmpty) return null;
-  final dt = DateTime.tryParse(raw);
-  if (dt == null) return null;
-  return dt.isUtc ? dt.toLocal() : dt;
-}
+  DateTime? _parseTsLocal(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return null;
+    return dt.isUtc ? dt.toLocal() : dt;
+  }
 
   void _sortTickets() {
     _tickets.sort((a, b) {
@@ -1186,7 +1243,8 @@ DateTime? _parseTsLocal(String? raw) {
                     status: t.status,
                     competitionTitle: t.competitionTitle,
                     lastMessage: msg.text,
-                    lastMessageAt: nowTs, // gunakan waktu terima lokal untuk mengurutkan
+                    lastMessageAt:
+                        nowTs, // gunakan waktu terima lokal untuk mengurutkan
                   )
                 : t)
             .toList();
@@ -1238,8 +1296,12 @@ DateTime? _parseTsLocal(String? raw) {
     try {
       final res = await apiClient.fetchTickets();
       res.sort((a, b) {
-        final at = DateTime.tryParse(a.lastMessageAt ?? '')?.millisecondsSinceEpoch ?? 0;
-        final bt = DateTime.tryParse(b.lastMessageAt ?? '')?.millisecondsSinceEpoch ?? 0;
+        final at =
+            DateTime.tryParse(a.lastMessageAt ?? '')?.millisecondsSinceEpoch ??
+                0;
+        final bt =
+            DateTime.tryParse(b.lastMessageAt ?? '')?.millisecondsSinceEpoch ??
+                0;
         return bt.compareTo(at);
       });
       final newSig = _sigTickets(res);
@@ -1295,7 +1357,6 @@ DateTime? _parseTsLocal(String? raw) {
       if (_activeId != null) _loadMessages(_activeId!, withLoading: false);
     });
   }
-
 
   void _maybeScrollToBottom({bool force = false}) {
     if (!_msgScroll.hasClients) return;
@@ -1379,7 +1440,11 @@ DateTime? _parseTsLocal(String? raw) {
       final list = _messages[ticketId] ?? [];
       _messages[ticketId] = [
         ...list,
-        ChatMessageData(id: DateTime.now().millisecondsSinceEpoch, senderType: 'user', text: text, createdAt: now)
+        ChatMessageData(
+            id: DateTime.now().millisecondsSinceEpoch,
+            senderType: 'user',
+            text: text,
+            createdAt: now)
       ];
       _controller.clear();
     });
@@ -1437,12 +1502,22 @@ DateTime? _parseTsLocal(String? raw) {
                 t.summary.toLowerCase().contains(_search))
             .toList();
 
-    return _GradientBackground(
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 250),
-        child: (_showDetail && activeTicket != null)
-            ? Builder(builder: (_) {
+    return WillPopScope(
+      onWillPop: () async {
+        if (_showDetail) {
+          setState(() => _showDetail = false);
+          return false;
+        }
+        return true;
+      },
+      child: _GradientBackground(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          child: (_showDetail && activeTicket != null)
+              ? Builder(builder: (_) {
                 final ticket = activeTicket!;
+                final waNumber = _whatsAppNumberFor(ticket);
+                final canWa = waNumber != null;
                 return Column(
                   key: const ValueKey('detail'),
                   children: [
@@ -1451,243 +1526,250 @@ DateTime? _parseTsLocal(String? raw) {
                       subtitle: ticket.topic,
                       color: const Color(0xFF1E88E5),
                       onBack: () => setState(() => _showDetail = false),
+                      onCall: canWa ? () => _openWhatsApp(ticket) : null,
+                      onVideo: canWa ? () => _openWhatsApp(ticket) : null,
                     ),
-                    if (_profile != null)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                        child: _UserInfoCard(
-                          profile: _profile!,
-                          ticket: ticket,
+                      if (_profile != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                          child: _UserInfoCard(
+                            profile: _profile!,
+                            ticket: ticket,
+                          ),
                         ),
-                      ),
-                    Expanded(
-                      child: Container(
-                        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FBFF),
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: const Color(0xFFD4E4FF)),
-                        ),
-                        child: Column(
-                          children: [
-                            Expanded(
-                                child: _loadingMessages
-                                    ? const Center(
-                                        child: CircularProgressIndicator())
-                                    : ListView.builder(
-                                        controller: _msgScroll,
-                                        itemCount: entries.length,
-                                        reverse: false,
-                                        itemBuilder: (_, i) {
-                                          final entry = entries[i];
-                                          if (entry.type == _EntryType.date) {
-                                            return Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      vertical: 10),
-                                              child: Center(
-                                                child: Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                      horizontal: 12,
-                                                      vertical: 6),
-                                                  decoration: BoxDecoration(
-                                                    color:
-                                                        const Color(0xFFEAF2FF),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            12),
+                      Expanded(
+                        child: Container(
+                          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FBFF),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: const Color(0xFFD4E4FF)),
+                          ),
+                          child: Column(
+                            children: [
+                              Expanded(
+                                  child: _loadingMessages
+                                      ? const Center(
+                                          child: CircularProgressIndicator())
+                                      : ListView.builder(
+                                          controller: _msgScroll,
+                                          itemCount: entries.length,
+                                          reverse: false,
+                                          itemBuilder: (_, i) {
+                                            final entry = entries[i];
+                                            if (entry.type == _EntryType.date) {
+                                              return Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        vertical: 10),
+                                                child: Center(
+                                                  child: Container(
+                                                    padding: const EdgeInsets
+                                                        .symmetric(
+                                                        horizontal: 12,
+                                                        vertical: 6),
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(
+                                                          0xFFEAF2FF),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              12),
+                                                    ),
+                                                    child: Text(
+                                                        entry.label ?? '',
+                                                        style: const TextStyle(
+                                                            color: Color(
+                                                                0xFF526380),
+                                                            fontSize: 12,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w600)),
                                                   ),
-                                                  child: Text(entry.label ?? '',
-                                                      style: const TextStyle(
-                                                          color:
-                                                              Color(0xFF526380),
-                                                          fontSize: 12,
-                                                          fontWeight:
-                                                              FontWeight.w600)),
+                                                ),
+                                              );
+                                            }
+
+                                            final m = entry.message!;
+                                            final isMe = m.senderType == 'user';
+                                            final time = _parseTs(m.createdAt);
+                                            final timeText = time != null
+                                                ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
+                                                : '';
+                                            return Align(
+                                              alignment: isMe
+                                                  ? Alignment.centerRight
+                                                  : Alignment.centerLeft,
+                                              child: Container(
+                                                margin:
+                                                    const EdgeInsets.symmetric(
+                                                        vertical: 6),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        vertical: 10,
+                                                        horizontal: 14),
+                                                constraints:
+                                                    const BoxConstraints(
+                                                        maxWidth: 300),
+                                                decoration: BoxDecoration(
+                                                  color: isMe
+                                                      ? const Color(0xFF1E88E5)
+                                                      : const Color(0xFFEFF4FF),
+                                                  borderRadius:
+                                                      BorderRadius.circular(16),
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      m.text,
+                                                      style: TextStyle(
+                                                        height: 1.3,
+                                                        color: isMe
+                                                            ? Colors.white
+                                                            : const Color(
+                                                                0xFF1A2F4D),
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      timeText,
+                                                      style: TextStyle(
+                                                        color: isMe
+                                                            ? Colors.white
+                                                                .withOpacity(
+                                                                    0.8)
+                                                            : const Color(
+                                                                    0xFF1A2F4D)
+                                                                .withOpacity(
+                                                                    0.6),
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
                                               ),
                                             );
-                                          }
-
-                                          final m = entry.message!;
-                                          final isMe = m.senderType == 'user';
-                                          final time = _parseTs(m.createdAt);
-                                          final timeText = time != null
-                                              ? '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}'
-                                              : '';
-                                          return Align(
-                                            alignment: isMe
-                                                ? Alignment.centerRight
-                                                : Alignment.centerLeft,
-                                            child: Container(
-                                              margin:
-                                                  const EdgeInsets.symmetric(
-                                                      vertical: 6),
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      vertical: 10,
-                                                      horizontal: 14),
-                                              constraints:
-                                                  const BoxConstraints(
-                                                      maxWidth: 300),
-                                              decoration: BoxDecoration(
-                                                color: isMe
-                                                    ? const Color(0xFF1E88E5)
-                                                    : const Color(0xFFEFF4FF),
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
-                                              ),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    m.text,
-                                                    style: TextStyle(
-                                                      height: 1.3,
-                                                      color: isMe
-                                                          ? Colors.white
-                                                          : const Color(
-                                                              0xFF1A2F4D),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    timeText,
-                                                    style: TextStyle(
-                                                      color: isMe
-                                                          ? Colors.white
-                                                              .withOpacity(0.8)
-                                                          : const Color(
-                                                                  0xFF1A2F4D)
-                                                              .withOpacity(
-                                                                  0.6),
-                                                      fontSize: 11,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      )),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _controller,
-                                    enabled: !_sending,
-                                    decoration: const InputDecoration(
-                                      hintText: "Ketik pesan",
-                                      contentPadding: EdgeInsets.symmetric(
-                                          vertical: 12, horizontal: 14),
+                                          },
+                                        )),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _controller,
+                                      enabled: !_sending,
+                                      decoration: const InputDecoration(
+                                        hintText: "Ketik pesan",
+                                        contentPadding: EdgeInsets.symmetric(
+                                            vertical: 12, horizontal: 14),
+                                      ),
+                                      onSubmitted: (_) => _sendMessage(),
                                     ),
-                                    onSubmitted: (_) => _sendMessage(),
                                   ),
-                                ),
-                                const SizedBox(width: 10),
-                                SizedBox(
-                                  height: 48,
-                                  width: 48,
-                                  child: ElevatedButton(
-                                    onPressed: _sending ? null : _sendMessage,
-                                    style: ElevatedButton.styleFrom(
-                                      padding: EdgeInsets.zero,
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14)),
+                                  const SizedBox(width: 10),
+                                  SizedBox(
+                                    height: 48,
+                                    width: 48,
+                                    child: ElevatedButton(
+                                      onPressed: _sending ? null : _sendMessage,
+                                      style: ElevatedButton.styleFrom(
+                                        padding: EdgeInsets.zero,
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(14)),
+                                      ),
+                                      child: _sending
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : const Icon(Icons.send_rounded,
+                                              color: Colors.white),
                                     ),
-                                    child: _sending
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        : const Icon(Icons.send_rounded,
-                                            color: Colors.white),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                })
+              : Column(
+                  key: const ValueKey('list'),
+                  children: [
+                    const _TitleRow(title: 'Chat'),
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF5F8FF),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFD4E4FF)),
+                        ),
+                        child: TextField(
+                          decoration: InputDecoration(
+                            hintText: 'Cari chat atau tiket',
+                            prefixIcon: const Icon(Icons.search,
+                                color: Color(0xFF7B8CA7)),
+                            border: InputBorder.none,
+                            contentPadding:
+                                const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onChanged: (v) =>
+                              setState(() => _search = v.trim().toLowerCase()),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: _loadingTickets
+                          ? const Center(child: CircularProgressIndicator())
+                          : ListView.separated(
+                              padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
+                              itemBuilder: (_, i) {
+                                final t = filteredTickets[i];
+                                return _ChatListItem(
+                                  ticket: t,
+                                  unread: _unreadTickets.contains(t.id),
+                                  onTap: () => setState(() {
+                                    _activeId = t.id;
+                                    _showDetail = true;
+                                    _forceScrollNextLoad = true;
+                                    apiClient.joinTicketRoom(t.id);
+                                    _unreadTickets.remove(t.id);
+                                    apiClient.markTicketRead(t.id);
+                                    _loadMessages(t.id);
+                                  }),
+                                );
+                              },
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 4),
+                              itemCount: filteredTickets.length,
                             ),
-                          ],
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 20, bottom: 20),
+                      child: Align(
+                        alignment: Alignment.bottomRight,
+                        child: FloatingActionButton.extended(
+                          backgroundColor: const Color(0xFF25D366),
+                          foregroundColor: Colors.white,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Buat percakapan'),
+                          onPressed: _openNewChatPage,
                         ),
                       ),
                     ),
                   ],
-                );
-              })
-            : Column(
-                key: const ValueKey('list'),
-                children: [
-                  const _TitleRow(title: 'Chat'),
-                  const SizedBox(height: 12),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F8FF),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFD4E4FF)),
-                      ),
-                      child: TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Cari chat atau tiket',
-                          prefixIcon: const Icon(Icons.search,
-                              color: Color(0xFF7B8CA7)),
-                          border: InputBorder.none,
-                          contentPadding:
-                              const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: _loadingTickets
-                        ? const Center(child: CircularProgressIndicator())
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
-                            itemBuilder: (_, i) {
-                              final t = filteredTickets[i];
-                              return _ChatListItem(
-                                ticket: t,
-                                unread: _unreadTickets.contains(t.id),
-                                onTap: () => setState(() {
-                              _activeId = t.id;
-                              _showDetail = true;
-                              _forceScrollNextLoad = true;
-                              apiClient.joinTicketRoom(t.id);
-                              _unreadTickets.remove(t.id);
-                              apiClient.markTicketRead(t.id);
-                              _loadMessages(t.id);
-                            }),
-                      );
-                    },
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 4),
-                            itemCount: filteredTickets.length,
-                          ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 20, bottom: 20),
-                    child: Align(
-                      alignment: Alignment.bottomRight,
-                      child: FloatingActionButton.extended(
-                        backgroundColor: const Color(0xFF25D366),
-                        foregroundColor: Colors.white,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Buat percakapan'),
-                        onPressed: _openNewChatPage,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+        ),
       ),
     );
   }
@@ -1712,7 +1794,8 @@ DateTime? _parseTsLocal(String? raw) {
     final trimmed = summary.trim();
     if (trimmed.isEmpty) return;
     try {
-      final ticket = await apiClient.createTicket(competitionId, topic, trimmed);
+      final ticket =
+          await apiClient.createTicket(competitionId, topic, trimmed);
       setState(() {
         _tickets = [ticket, ..._tickets];
         _activeId = ticket.id;
@@ -1984,25 +2067,7 @@ class _TitleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(title, style: Theme.of(context).textTheme.headlineMedium),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEAF2FF),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFD4E4FF)),
-          ),
-          child: const Text('POSI',
-              style: TextStyle(
-                  color: Color(0xFF1E88E5),
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.3)),
-        ),
-      ],
-    );
+    return const SizedBox.shrink();
   }
 }
 
@@ -2091,12 +2156,16 @@ class _ChatAppBar extends StatelessWidget {
     required this.subtitle,
     required this.color,
     required this.onBack,
+    this.onCall,
+    this.onVideo,
   });
 
   final String title;
   final String subtitle;
   final Color color;
   final VoidCallback onBack;
+  final VoidCallback? onCall;
+  final VoidCallback? onVideo;
 
   @override
   Widget build(BuildContext context) {
@@ -2132,16 +2201,16 @@ class _ChatAppBar extends StatelessWidget {
                   subtitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: Color(0xFF9AB3D7), fontSize: 12),
+                  style:
+                      const TextStyle(color: Color(0xFF9AB3D7), fontSize: 12),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 8),
           IconButton(
-              onPressed: () {}, icon: const Icon(Icons.videocam_outlined)),
-          IconButton(onPressed: () {}, icon: const Icon(Icons.call_outlined)),
+              onPressed: onVideo, icon: const Icon(Icons.videocam_outlined)),
+          IconButton(onPressed: onCall, icon: const Icon(Icons.call_outlined)),
           IconButton(onPressed: () {}, icon: const Icon(Icons.more_vert)),
         ],
       ),
@@ -2150,7 +2219,8 @@ class _ChatAppBar extends StatelessWidget {
 }
 
 class _ChatListItem extends StatelessWidget {
-  const _ChatListItem({required this.ticket, required this.onTap, this.unread = false});
+  const _ChatListItem(
+      {required this.ticket, required this.onTap, this.unread = false});
 
   final TicketData ticket;
   final VoidCallback onTap;
@@ -2414,7 +2484,8 @@ class NewChatPage extends StatefulWidget {
     required this.initialCompetitionId,
   });
 
-  final void Function(String topic, int? competitionId, String summary) onCreate;
+  final void Function(String topic, int? competitionId, String summary)
+      onCreate;
   final String initialTopic;
   final int? initialCompetitionId;
 
@@ -2779,7 +2850,3 @@ class _ProfileRow extends StatelessWidget {
     );
   }
 }
-
-
-
-

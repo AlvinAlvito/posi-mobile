@@ -7,7 +7,7 @@ import { sendPush } from '../fcm.js'
 const router = Router()
 
 // GET /chat/tickets (user) or /admin/chat/tickets (admin)
-router.get('/chat/tickets', authRequired(), async (req, res) => {
+ router.get('/chat/tickets', authRequired(), async (req, res) => {
   const userId = req.user.id
   const rows = await query(
     `SELECT t.id,
@@ -17,6 +17,7 @@ router.get('/chat/tickets', authRequired(), async (req, res) => {
             t.competition_id,
             t.last_message_at AS lastMessageAt,
             c.title AS competitionTitle,
+            c.location_type AS competitionLocationType,
             lm.text AS lastMessage
      FROM chat_tickets t
      LEFT JOIN competitions c ON c.id = t.competition_id
