@@ -364,6 +364,43 @@ class ApiClient {
         .toList();
   }
 
+  Future<List<CompetitionDetail>> fetchActiveCompetitions({String? locationType}) async {
+    final res = await _dio.get<Map<String, dynamic>>('/api/competitions/active',
+        queryParameters: locationType != null ? {'location_type': locationType} : null);
+    if (res.statusCode != null && res.statusCode! >= 400) {
+      throw Exception('Gagal memuat kompetisi (${res.statusCode})');
+    }
+    final list = (res.data?['competitions'] as List?) ?? [];
+    return list.map((e) => CompetitionDetail.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<List<NewsItem>> fetchNews() async {
+    final res = await _dio.get<Map<String, dynamic>>('/api/news');
+    if (res.statusCode != null && res.statusCode! >= 400) {
+      throw Exception('Gagal memuat berita (${res.statusCode})');
+    }
+    final list = (res.data?['news'] as List?) ?? [];
+    return list.map((e) => NewsItem.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<NewsItem> fetchNewsDetail(dynamic idOrSlug) async {
+    final res = await _dio.get<Map<String, dynamic>>('/api/news/$idOrSlug');
+    if (res.statusCode != null && res.statusCode! >= 400) {
+      throw Exception('Gagal memuat berita (${res.statusCode})');
+    }
+    final data = res.data?['news'] as Map<String, dynamic>? ?? {};
+    return NewsItem.fromJson(data);
+  }
+
+  Future<List<ResultItem>> fetchResults() async {
+    final res = await _dio.get<Map<String, dynamic>>('/api/results/offline');
+    if (res.statusCode != null && res.statusCode! >= 400) {
+      throw Exception('Gagal memuat hasil (${res.statusCode})');
+    }
+    final list = (res.data?['results'] as List?) ?? [];
+    return list.map((e) => ResultItem.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
   // -------- Socket.IO --------
   Future<void> ensureSocket({
     void Function(ChatMessageData message, int ticketId)? onMessage,
@@ -476,6 +513,41 @@ class CompetitionOption {
       );
 }
 
+class CompetitionDetail {
+  CompetitionDetail({
+    required this.id,
+    required this.title,
+    required this.date,
+    required this.startRegistration,
+    required this.finishRegistration,
+    required this.price,
+    required this.image,
+    required this.locationType,
+  });
+
+  final int id;
+  final String title;
+  final String? date;
+  final String? startRegistration;
+  final String? finishRegistration;
+  final int? price;
+  final String image;
+  final String? locationType;
+
+  factory CompetitionDetail.fromJson(Map<String, dynamic> json) => CompetitionDetail(
+        id: json['id'] ?? 0,
+        title: (json['title'] ?? '').toString(),
+        date: json['date']?.toString(),
+        startRegistration: json['start_registration_date']?.toString(),
+        finishRegistration: json['finish_registration_date']?.toString(),
+        price: json['price'] is int
+            ? json['price'] as int
+            : int.tryParse('${json['price'] ?? ''}'),
+        image: (json['image'] ?? '').toString(),
+        locationType: json['location_type']?.toString(),
+      );
+}
+
 class TicketData {
   TicketData({
     required this.id,
@@ -533,6 +605,73 @@ class ChatMessageData {
         senderType: (json['senderType'] ?? '').toString(),
         text: (json['text'] ?? '').toString(),
         createdAt: (json['createdAt'] ?? '').toString(),
+      );
+}
+
+class NewsItem {
+  NewsItem({
+    required this.id,
+    required this.title,
+    required this.category,
+    required this.content,
+    required this.image,
+    required this.slug,
+    this.createdAt,
+  });
+
+  final int id;
+  final String title;
+  final String category;
+  final String content;
+  final String image;
+  final String slug;
+  final String? createdAt;
+
+  factory NewsItem.fromJson(Map<String, dynamic> json) => NewsItem(
+        id: json['id'] ?? 0,
+        title: (json['title'] ?? '').toString(),
+        category: (json['category'] ?? '').toString(),
+        content: (json['content'] ?? '').toString(),
+        image: (json['image'] ?? '').toString(),
+        slug: (json['slug'] ?? '').toString(),
+        createdAt: (json['createdAt'] ?? json['created_at'])?.toString(),
+      );
+}
+
+class ResultItem {
+  ResultItem({
+    required this.id,
+    required this.competitionTitle,
+    required this.subjectName,
+    required this.levelName,
+    required this.levelJenjang,
+    required this.ranking,
+    required this.medali,
+    required this.finalized,
+  });
+
+  final int id;
+  final String competitionTitle;
+  final String subjectName;
+  final String levelName;
+  final String levelJenjang;
+  final int? ranking;
+  final String medali;
+  final int finalized;
+
+  factory ResultItem.fromJson(Map<String, dynamic> json) => ResultItem(
+        id: json['id'] ?? 0,
+        competitionTitle: (json['competitionTitle'] ?? '').toString(),
+        subjectName: (json['subjectName'] ?? '').toString(),
+        levelName: (json['levelName'] ?? '').toString(),
+        levelJenjang: (json['levelJenjang'] ?? '').toString(),
+        ranking: json['ranking'] is int
+            ? json['ranking'] as int
+            : int.tryParse('${json['ranking'] ?? ''}'),
+        medali: (json['medali'] ?? '').toString(),
+        finalized: json['finalized'] is int
+            ? json['finalized'] as int
+            : int.tryParse('${json['finalized'] ?? 0}') ?? 0,
       );
 }
 
@@ -1030,21 +1169,20 @@ class _MainShellState extends State<MainShell> {
     _index = widget.initialIndex;
   }
 
-  final _pages = const [
-    ChatTab(),
-    InfoTab(),
-    HomeTab(),
-    SupportTab(),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final pages = [
+      const ChatTab(),
+      InfoTab(onLogout: widget.onLogout),
+      const HomeTab(),
+      NewsTab(onLogout: widget.onLogout),
+    ];
     return Scaffold(
       body: SafeArea(
         child: IndexedStack(
           index: _index,
           children: [
-            ..._pages,
+            ...pages,
             SettingsTab(onLogout: widget.onLogout),
           ],
         ),
@@ -1060,7 +1198,7 @@ class _MainShellState extends State<MainShell> {
           BottomNavigationBarItem(
               icon: _HomeIcon(active: _index == 2), label: 'Home'),
           const BottomNavigationBarItem(
-              icon: Icon(Icons.support_agent_rounded), label: 'Support'),
+              icon: Icon(Icons.article_rounded), label: 'Berita'),
           const BottomNavigationBarItem(
               icon: Icon(Icons.person_rounded), label: 'Profil'),
         ],
@@ -1992,27 +2130,102 @@ class _MessageEntry {
   final ChatMessageData? message;
 }
 
-class InfoTab extends StatelessWidget {
-  const InfoTab({super.key});
+class InfoTab extends StatefulWidget {
+  const InfoTab({super.key, this.onLogout});
+
+  final VoidCallback? onLogout;
+
+  @override
+  State<InfoTab> createState() => _InfoTabState();
+}
+
+class _InfoTabState extends State<InfoTab> {
+  String _displayName = 'Pengguna';
+  List<ResultItem> _results = [];
+  bool _loadingResults = true;
+  String? _resultsError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfileName();
+    _loadResults();
+  }
+
+  Future<void> _loadProfileName() async {
+    try {
+      final profile = await apiClient.fetchProfile();
+      if (!mounted) return;
+      final name = profile.name.trim().isEmpty ? 'Pengguna' : profile.name;
+      setState(() => _displayName = name);
+    } catch (_) {
+      // Abaikan error; gunakan default display name.
+    }
+  }
+
+  Future<void> _loadResults() async {
+    setState(() {
+      _loadingResults = true;
+      _resultsError = null;
+    });
+    try {
+      final res = await apiClient.fetchResults();
+      if (mounted) setState(() => _results = res);
+    } catch (e) {
+      if (mounted) setState(() => _resultsError = 'Gagal memuat hasil: $e');
+    } finally {
+      if (mounted) setState(() => _loadingResults = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return _GradientBackground(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            _HeroInfoCard(
-              title: 'Informasi',
-              subtitle:
-                  'Pantau pengumuman, jadwal kompetisi, dan FAQ terbaru di satu tempat.',
-              gradient: [Color(0xFF6CC5FF), Color(0xFF3E8BFF)],
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x22000000),
+                  blurRadius: 10,
+                  offset: Offset(0, 6),
+                )
+              ],
             ),
-            SizedBox(height: 14),
-            _CompetitionRowCard(),
-          ],
-        ),
+            child: _TopBar(
+              name: _displayName,
+              onLogout: widget.onLogout,
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _HeroInfoCard(
+                    title: 'Informasi',
+                    subtitle:
+                        'Pantau pengumuman, jadwal kompetisi, dan FAQ terbaru di satu tempat.',
+                    gradient: [Color(0xFF6CC5FF), Color(0xFF3E8BFF)],
+                  ),
+                  const SizedBox(height: 14),
+                  const _CompetitionRowCard(),
+                  const SizedBox(height: 18),
+                  _ResultSection(
+                    loading: _loadingResults,
+                    error: _resultsError,
+                    results: _results,
+                    onRetry: _loadResults,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2140,25 +2353,681 @@ class _MiniCard extends StatelessWidget {
   }
 }
 
-class SupportTab extends StatelessWidget {
-  const SupportTab({super.key});
+class NewsTab extends StatefulWidget {
+  const NewsTab({super.key, this.onLogout});
+
+  final VoidCallback? onLogout;
+
+  @override
+  State<NewsTab> createState() => _NewsTabState();
+}
+
+class _NewsTabState extends State<NewsTab> {
+  String _displayName = 'Pengguna';
+  List<NewsItem> _news = [];
+  List<NewsItem> _filtered = [];
+  bool _loadingNews = true;
+  String? _errorNews;
+  String _search = '';
+  String _category = 'Semua';
+  final _searchCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfileName();
+    _loadNews();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProfileName() async {
+    try {
+      final profile = await apiClient.fetchProfile();
+      if (!mounted) return;
+      final name = profile.name.trim().isEmpty ? 'Pengguna' : profile.name;
+      setState(() => _displayName = name);
+    } catch (_) {
+      // abaikan error, gunakan nama default
+    }
+  }
+
+  Future<void> _loadNews() async {
+    setState(() {
+      _loadingNews = true;
+      _errorNews = null;
+    });
+    try {
+      final items = await apiClient.fetchNews();
+      if (mounted) {
+        setState(() {
+          _news = items;
+          _applyFilters();
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _errorNews = 'Gagal memuat berita: $e');
+    } finally {
+      if (mounted) setState(() => _loadingNews = false);
+    }
+  }
+
+  List<String> _buildCategories() {
+    final set = <String>{};
+    for (final n in _news) {
+      final cat = n.category.trim();
+      if (cat.isNotEmpty) set.add(cat);
+    }
+    final list = set.toList()..sort();
+    return ['Semua', ...list];
+  }
+
+  void _applyFilters() {
+    final term = _search.trim().toLowerCase();
+    final cat = _category;
+    setState(() {
+      _filtered = _news.where((n) {
+        final matchSearch = term.isEmpty ||
+            n.title.toLowerCase().contains(term) ||
+            n.content.toLowerCase().contains(term);
+        final matchCat =
+            cat == 'Semua' || n.category.toLowerCase() == cat.toLowerCase();
+        return matchSearch && matchCat;
+      }).toList();
+    });
+  }
+
+  String _snippet(String content, {int words = 10}) {
+    final parts = content.split(RegExp(r'\\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.length <= words) return content.trim();
+    return '${parts.take(words).join(' ')}...';
+  }
 
   @override
   Widget build(BuildContext context) {
     return _GradientBackground(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            _TitleRow(title: 'Support'),
-            SizedBox(height: 12),
-            _GlassCard(
-                child: Text(
-                    'Daftar kanal bantuan (email, WhatsApp, knowledge base) akan ditempatkan di sini.')),
-          ],
-        ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Color(0x22000000),
+                  blurRadius: 10,
+                  offset: Offset(0, 6),
+                )
+              ],
+            ),
+            child: _TopBar(
+              name: _displayName,
+              onLogout: widget.onLogout,
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _HeroInfoCard(
+                    title: 'Berita',
+                    subtitle:
+                        'Ikuti update terbaru POSI: pengumuman lomba, tips persiapan, dan cerita inspiratif peserta.',
+                    gradient: [Color(0xFF6CC5FF), Color(0xFF3E8BFF)],
+                  ),
+                  const SizedBox(height: 14),
+                  _NewsFilters(
+                    controller: _searchCtrl,
+                    selectedCategory: _category,
+                    categories: _buildCategories(),
+                    onSearch: (v) {
+                      _search = v;
+                      _applyFilters();
+                    },
+                    onCategory: (v) {
+                      _category = v;
+                      _applyFilters();
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  if (_loadingNews)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  else if (_errorNews != null)
+                    _GlassCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _errorNews!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: _loadNews,
+                            child: const Text('Coba lagi'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (_news.isEmpty)
+                    const _GlassCard(
+                      child: Text('Belum ada berita.'),
+                    )
+                  else
+                    Column(
+                      children: _filtered
+                          .map(
+                            (item) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _NewsCard(
+                                item: item,
+                                snippet: _snippet(item.content, words: 10),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          NewsDetailPage(
+                                            newsId: item.slug.isNotEmpty ? item.slug : item.id,
+                                            initial: item,
+                                          ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+class _ResultSection extends StatelessWidget {
+  const _ResultSection({
+    required this.loading,
+    required this.error,
+    required this.results,
+    required this.onRetry,
+  });
+
+  final bool loading;
+  final String? error;
+  final List<ResultItem> results;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Hasil Kompetisi Kamu',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF143155),
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (loading)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (error != null)
+          _GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  error!,
+                  style: const TextStyle(color: Colors.red),
+                ),
+                const SizedBox(height: 8),
+                TextButton(onPressed: onRetry, child: const Text('Coba lagi')),
+              ],
+            ),
+          )
+        else if (results.isEmpty)
+          const _GlassCard(
+            child: Text('Belum ada hasil kompetisi.'),
+          )
+        else
+          Column(
+            children: results
+                .map((r) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _ResultCard(item: r),
+                    ))
+                .toList(),
+          ),
+      ],
+    );
+  }
+}
+
+class _ResultCard extends StatelessWidget {
+  const _ResultCard({required this.item});
+
+  final ResultItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final tags = [
+      item.subjectName.isNotEmpty ? item.subjectName : null,
+      item.levelJenjang.isNotEmpty ? item.levelJenjang : item.levelName,
+    ].whereType<String>().toList();
+    final rankingText = item.ranking != null
+        ? 'Hasil ujian kompetisi sudah keluar, kamu ada di urutan ${item.ranking}. Silakan lakukan pemesanan.'
+        : 'Hasil ujian kompetisi sudah keluar.';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(color: Color(0x1A1E88E5), blurRadius: 14, offset: Offset(0, 10)),
+        ],
+        border: Border.all(color: const Color(0xFFD4E4FF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: tags
+                      .map((t) => Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE6F0FF),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              t,
+                              style: const TextStyle(
+                                color: Color(0xFF143155),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ))
+                      .toList(),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3B82F6).withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  'Hasil keluar',
+                  style: TextStyle(
+                    color: Color(0xFF1E3A8A),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            item.competitionTitle,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF143155),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            rankingText,
+            style: const TextStyle(color: Color(0xFF1E2F45)),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              ElevatedButton(
+                onPressed: () {},
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4F46E5),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  elevation: 2,
+                ),
+                child: const Text('Lihat detail'),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton(
+                onPressed: () {},
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF143155),
+                  side: const BorderSide(color: Color(0xFFD4E4FF)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  backgroundColor: const Color(0xFFF5F8FF),
+                ),
+                child: const Text('Pemesanan Produk'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NewsCard extends StatelessWidget {
+  const _NewsCard({
+    required this.item,
+    required this.snippet,
+    required this.onTap,
+  });
+
+  final NewsItem item;
+  final String snippet;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A1E88E5),
+            blurRadius: 14,
+            offset: Offset(0, 10),
+          )
+        ],
+        border: Border.all(color: const Color(0xFFD4E4FF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (item.image.isNotEmpty)
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              child: Image.network(
+                item.image,
+                height: 160,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 160,
+                  color: const Color(0xFFEAF2FF),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.broken_image_outlined, color: Color(0xFF6E8BB6)),
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF143155),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  snippet,
+                  style: const TextStyle(color: Color(0xFF526380)),
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ElevatedButton(
+                    onPressed: onTap,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E88E5),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 1,
+                    ),
+                    child: const Text('Baca Berita'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NewsFilters extends StatelessWidget {
+  const _NewsFilters({
+    required this.controller,
+    required this.selectedCategory,
+    required this.categories,
+    required this.onSearch,
+    required this.onCategory,
+  });
+
+  final TextEditingController controller;
+  final String selectedCategory;
+  final List<String> categories;
+  final ValueChanged<String> onSearch;
+  final ValueChanged<String> onCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Cari & Filter',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF143155),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: controller,
+            onChanged: onSearch,
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search, color: Color(0xFF1E88E5)),
+              hintText: 'Ketik judul atau kata kunci',
+              filled: true,
+              fillColor: const Color(0xFFF5F8FF),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFFD4E4FF)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF1E88E5)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: categories
+                .map(
+                  (c) => ChoiceChip(
+                    label: Text(c),
+                    selected: selectedCategory == c,
+                    onSelected: (_) => onCategory(c),
+                    selectedColor: const Color(0xFF1E88E5),
+                    labelStyle: TextStyle(
+                      color: selectedCategory == c ? Colors.white : const Color(0xFF143155),
+                      fontWeight: FontWeight.w600,
+                    ),
+                    backgroundColor: const Color(0xFFEAF2FF),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class NewsDetailPage extends StatefulWidget {
+  const NewsDetailPage({super.key, required this.newsId, this.initial});
+
+  /// id (number) atau slug (string)
+  final dynamic newsId;
+  final NewsItem? initial;
+
+  @override
+  State<NewsDetailPage> createState() => _NewsDetailPageState();
+}
+
+class _NewsDetailPageState extends State<NewsDetailPage> {
+  NewsItem? _news;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _news = widget.initial;
+    _loadDetail();
+  }
+
+  Future<void> _loadDetail() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final detail = await apiClient.fetchNewsDetail(widget.newsId);
+      if (mounted) setState(() => _news = detail);
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Gagal memuat berita: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Berita'),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF143155),
+        elevation: 0.5,
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null && _news == null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                        const SizedBox(height: 10),
+                        ElevatedButton(
+                          onPressed: _loadDetail,
+                          child: const Text('Coba lagi'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : _news == null
+                  ? const Center(child: Text('Berita tidak ditemukan'))
+                  : SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_news!.image.isNotEmpty)
+                            Image.network(
+                              _news!.image,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                height: 200,
+                                color: const Color(0xFFEAF2FF),
+                                alignment: Alignment.center,
+                                child: const Icon(Icons.broken_image_outlined,
+                                    color: Color(0xFF6E8BB6)),
+                              ),
+                            ),
+                          Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _news!.title,
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF143155),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                if (_error != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Text(
+                                      _error!,
+                                      style: const TextStyle(color: Colors.red),
+                                    ),
+                                  ),
+                                Text(
+                                  _news!.content,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF1E2F45),
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
     );
   }
 }
@@ -2690,7 +3559,7 @@ class _UpcomingCard extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: const [
-                    Text('Lihat detail'),
+                    Text('Lihat'),
                     SizedBox(width: 6),
                     Icon(Icons.arrow_forward_ios_rounded, size: 14),
                   ],
@@ -2793,21 +3662,7 @@ class _QuoteCard extends StatelessWidget {
             style: const TextStyle(color: Colors.white70),
           ),
           const Spacer(),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              style: _pillButtonStyle(),
-              onPressed: () {},
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Text('Lihat'),
-                  SizedBox(width: 6),
-                  Icon(Icons.arrow_forward_ios_rounded, size: 14),
-                ],
-              ),
-            ),
-          ),
+          const SizedBox(height: 6),
         ],
       ),
     );

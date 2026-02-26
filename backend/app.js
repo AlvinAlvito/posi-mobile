@@ -12,6 +12,8 @@ import ticketRoutes from './routes/tickets.js'
 import deviceRoutes from './routes/devices.js'
 import profileRoutes from './routes/profile.js'
 import competitionRoutes from './routes/competitions.js'
+import newsRoutes from './routes/news.js'
+import resultsRoutes from './routes/results.js'
 import { createSocket } from './socket.js'
 
 dotenv.config()
@@ -65,6 +67,8 @@ app.use('/api', ticketRoutes)
 app.use('/api', deviceRoutes)
 app.use('/api', profileRoutes)
 app.use('/api', competitionRoutes)
+app.use('/api', newsRoutes)
+app.use('/api', resultsRoutes)
 
 app.use((err, req, res, next) => {
   console.error(err)
