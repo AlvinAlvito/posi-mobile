@@ -1075,38 +1075,48 @@ class HomeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _GradientBackground(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _TitleRow(title: 'Selamat datang Ã°Å¸â€˜â€¹'),
-            const SizedBox(height: 16),
-            _GlassCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('Pantau kompetisi & dukungan'),
-                  SizedBox(height: 8),
-                  Text(
-                    'Akses cepat ke tiket chat, pengumuman, dan informasi terbaru POSI.',
-                    style: TextStyle(color: Color(0xFF526380)),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: const [
-                _MetricCard(
-                    label: 'Tiket aktif',
-                    value: '3',
-                    accent: Color(0xFF4CC2FF)),
-                SizedBox(width: 12),
-                _MetricCard(
-                    label: 'Selesai', value: '12', accent: Color(0xFF7CE7C7)),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _HeroInfoCard(
+          title: 'Beranda',
+          subtitle:
+              'Ringkasan aktivitas POSI, tiket aktif, dan pintasan cepat di sini.',
+          gradient: [Color(0xFF7EE8FA), Color(0xFF46A6FF)],
+        ),
+        const SizedBox(height: 14),
+        const _StatRow(),
+        const SizedBox(height: 14),
+        const _HomeSectionTitle('Kompetisi Mendatang'),
+        const SizedBox(height: 10),
+        const _UpcomingList(),
+        const SizedBox(height: 18),
+        const _HomeSectionTitle('Kisah Sukses Peserta'),
+        const SizedBox(height: 12),
+        const _QuotesRow(),
+        const SizedBox(height: 20),
+            const _HomeSectionTitle('Platform Belajar'),
+            const SizedBox(height: 10),
+            const _BannerCard(
+              title: 'Taklukkan ujian bersama mimpi.mu',
+              subtitle:
+                  'Persiapan OSN, KSM, UTBK, dan analisis AI yang adaptif.',
+              gradient: [Color(0xFF6CC5FF), Color(0xFF3E8BFF)],
+              icon: Icons.auto_awesome,
+              bullets: [
+                'Persiapan Lengkap TKA & UTBK',
+                'Pelatihan Olimpiade Sains (OSN)',
+                'Materi Olimpiade Madrasah (KSM)',
+                'Analisis Performa Berbasis AI',
               ],
             ),
+            const SizedBox(height: 14),
+            const _HomeSectionTitle('POSI Store'),
+            const SizedBox(height: 10),
+            const _StoreCard(),
+            const SizedBox(height: 20),
           ],
         ),
       ),
@@ -1655,6 +1665,24 @@ class _ChatTabState extends State<ChatTab> {
                                         )),
                               Row(
                                 children: [
+                                  SizedBox(
+                                    height: 48,
+                                    width: 48,
+                                    child: OutlinedButton(
+                                      onPressed: _sending ? null : () {},
+                                      style: OutlinedButton.styleFrom(
+                                        padding: EdgeInsets.zero,
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(14)),
+                                        side: const BorderSide(
+                                            color: Color(0xFFD4E4FF)),
+                                      ),
+                                      child: const Icon(Icons.attach_file,
+                                          color: Color(0xFF1E88E5)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
                                   Expanded(
                                     child: TextField(
                                       controller: _controller,
@@ -1701,16 +1729,58 @@ class _ChatTabState extends State<ChatTab> {
                     ],
                   );
                 })
-              : Column(
-                  key: const ValueKey('list'),
-                  children: [
-                    const _TitleRow(title: 'Chat'),
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF5F8FF),
+            : Column(
+                key: const ValueKey('list'),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF4CC2FF), Color(0xFF1E88E5)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x331E88E5),
+                            blurRadius: 16,
+                            offset: Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'Chat',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Fitur yang mengelola informasi mengenai chat dan interaksi dengan admin.',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF5F8FF),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: const Color(0xFFD4E4FF)),
                         ),
@@ -1836,14 +1906,138 @@ class InfoTab extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: const [
-            _TitleRow(title: 'Informasi'),
-            SizedBox(height: 12),
-            _GlassCard(
-              child: Text(
-                  'Tempatkan pengumuman, jadwal kompetisi, atau FAQ di sini.'),
+            _HeroInfoCard(
+              title: 'Informasi',
+              subtitle:
+                  'Pantau pengumuman, jadwal kompetisi, dan FAQ terbaru di satu tempat.',
+              gradient: [Color(0xFF6CC5FF), Color(0xFF3E8BFF)],
+            ),
+            SizedBox(height: 14),
+            _CompetitionRowCard(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompetitionRowCard extends StatelessWidget {
+  const _CompetitionRowCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Daftar Kompetisi',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF143155),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _MiniCard(
+                title: 'Kompetisi Online',
+                subtitle: 'Ikuti ujian dari mana saja, jadwal fleksibel.',
+                icon: Icons.wifi_rounded,
+                colors: const [Color(0xFF7EE8FA), Color(0xFF46A6FF)],
+                minHeight: 170,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _MiniCard(
+                title: 'Kompetisi Offline',
+                subtitle: 'Rasakan pengalaman langsung di lokasi resmi.',
+                icon: Icons.apartment_rounded,
+                colors: const [Color(0xFF9FD7FF), Color(0xFF6AA6FF)],
+                minHeight: 170,
+              ),
             ),
           ],
         ),
+      ],
+    );
+  }
+}
+
+class _MiniCard extends StatelessWidget {
+  const _MiniCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.colors,
+    this.minHeight = 0,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final List<Color> colors;
+  final double minHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      constraints: BoxConstraints(minHeight: minHeight),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: colors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x221E88E5),
+            blurRadius: 14,
+            offset: Offset(0, 8),
+          )
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: Colors.white, size: 22),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(color: Colors.white70, height: 1.3),
+          ),
+          const SizedBox(height: 10),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 0, vertical: 0),
+              textStyle:
+                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            ),
+            onPressed: () {},
+            child: const Text('Lihat'),
+          ),
+        ],
       ),
     );
   }
@@ -2069,6 +2263,618 @@ class _TitleRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return const SizedBox.shrink();
   }
+}
+
+class _HeroInfoCard extends StatelessWidget {
+  const _HeroInfoCard({
+    required this.title,
+    required this.subtitle,
+    required this.gradient,
+  });
+
+  final String title;
+  final String subtitle;
+  final List<Color> gradient;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x331E88E5),
+            blurRadius: 16,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.1,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              color: Colors.white70,
+              height: 1.35,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeSectionTitle extends StatelessWidget {
+  const _HomeSectionTitle(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w800,
+        color: Color(0xFF143155),
+      ),
+    );
+  }
+}
+
+class _StatRow extends StatelessWidget {
+  const _StatRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: const [
+        _MetricCard(label: 'Peserta', value: '10K+', accent: Color(0xFF4CC2FF)),
+        SizedBox(width: 12),
+        _MetricCard(label: 'Kompetisi', value: '200+', accent: Color(0xFF7CE7C7)),
+      ],
+    );
+  }
+}
+
+class _UpcomingList extends StatelessWidget {
+  const _UpcomingList();
+
+  @override
+  Widget build(BuildContext context) {
+    final items = const [
+      _UpcomingCard(
+        title: 'SMANDU FAIR 2026',
+        date: '12 Apr 2026',
+        badge: 'Gratis',
+        gradient: [Color(0xFF7EE8FA), Color(0xFF46A6FF)],
+      ),
+      _UpcomingCard(
+        title: 'KSI 2026 (SMP/SMA)',
+        date: '21 Apr 2026',
+        badge: 'Premium',
+        gradient: [Color(0xFF8E9EFA), Color(0xFF6A60FF)],
+      ),
+      _UpcomingCard(
+        title: 'USC 2026 (SMP/SMA)',
+        date: '28 Apr 2026',
+        badge: 'Premium',
+        gradient: [Color(0xFF9FD7FF), Color(0xFF6AA6FF)],
+      ),
+    ];
+    return SizedBox(
+      height: 170,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (ctx, i) => items[i],
+      ),
+    );
+  }
+}
+
+class _UpcomingCard extends StatelessWidget {
+  const _UpcomingCard({
+    required this.title,
+    required this.date,
+    required this.badge,
+    required this.gradient,
+  });
+
+  final String title;
+  final String date;
+  final String badge;
+  final List<Color> gradient;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 240,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(color: Color(0x331E88E5), blurRadius: 16, offset: Offset(0, 10)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  badge,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              Text(
+                date,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                ),
+              )
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+              fontSize: 14,
+            ),
+          ),
+          const Spacer(),
+          Row(
+            children: [
+              TextButton(
+                style: _pillButtonStyle(),
+                onPressed: () {},
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Text('Lihat detail'),
+                    SizedBox(width: 6),
+                    Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  ],
+                ),
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+}
+
+class _QuotesRow extends StatelessWidget {
+  const _QuotesRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final quotes = const [
+      _QuoteCard(
+        name: 'I Gusti Ngurah Raka',
+        text: 'POSI bantu saya percaya diri bersaing di tingkat nasional.',
+      ),
+      _QuoteCard(
+        name: 'Alvin Alvito',
+        text: 'Latihan dan analisis yang rapi, saya siap UTBK & OSN.',
+      ),
+      _QuoteCard(
+        name: 'Musa Michael',
+        text: 'Kompetisi online POSI bikin saya terbiasa dengan tekanan waktu.',
+      ),
+    ];
+    return SizedBox(
+      height: 200,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: quotes.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (_, i) => quotes[i],
+      ),
+    );
+  }
+}
+
+class _QuoteCard extends StatelessWidget {
+  const _QuoteCard({
+    required this.name,
+    required this.text,
+  });
+
+  final String name;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 240,
+      padding: const EdgeInsets.all(14),
+      constraints: const BoxConstraints(minHeight: 190),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF8E9EFA), Color(0xFF6A60FF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(color: Color(0x221E88E5), blurRadius: 10, offset: Offset(0, 8)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: Colors.white.withOpacity(0.18),
+                child: Text(name.isNotEmpty ? name[0] : '?',
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w800)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            text,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white70),
+          ),
+          const Spacer(),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              style: _pillButtonStyle(),
+              onPressed: () {},
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Text('Lihat'),
+                  SizedBox(width: 6),
+                  Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+ButtonStyle _pillButtonStyle() {
+  return TextButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+    foregroundColor: const Color(0xFF143155),
+    backgroundColor: Colors.white,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(999),
+    ),
+    textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+  );
+}
+class _BannerCard extends StatelessWidget {
+  const _BannerCard({
+    required this.title,
+    required this.subtitle,
+    required this.gradient,
+    required this.icon,
+    this.bullets,
+  });
+
+  final String title;
+  final String subtitle;
+  final List<Color> gradient;
+  final IconData icon;
+  final List<String>? bullets;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(color: Color(0x221E88E5), blurRadius: 14, offset: Offset(0, 10)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.18),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style:
+                          const TextStyle(color: Colors.white70, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  foregroundColor: const Color(0xFF143155),
+                  backgroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  textStyle:
+                      const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                ),
+                onPressed: () {},
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Text('Lihat'),
+                    SizedBox(width: 6),
+                    Icon(Icons.arrow_forward_ios_rounded, size: 13),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (bullets != null && bullets!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...bullets!.map((b) => _BulletItem(text: b)).toList(),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _BulletItem extends StatelessWidget {
+  const _BulletItem({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Container(
+            height: 18,
+            width: 18,
+            decoration: BoxDecoration(
+              color: const Color(0xFF5BEC8F).withOpacity(0.18),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.check_circle, color: Color(0xFF27C26C), size: 16),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: Colors.white, height: 1.2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StoreCard extends StatelessWidget {
+  const _StoreCard();
+
+  @override
+  Widget build(BuildContext context) {
+    const images = [
+      'https://posi.id/images/posi-store/SCW%20Bahasa%20Inggris%20SD%20depan.png',
+      'https://posi.id/images/posi-store/JOS%20MM%20SMP.png',
+      'https://posi.id/images/posi-store/SCW%20MM%20SMP.png',
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(color: Color(0x221E88E5), blurRadius: 16, offset: Offset(0, 12)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+            child: Row(
+              children: images
+                  .map(
+                    (url) => Expanded(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        height: 140,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x141E1E1E),
+                              blurRadius: 8,
+                              offset: Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            _storeImg(url),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: Colors.white,
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.image_not_supported,
+                                  color: Color(0xFF9AB3D7)),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(18)),
+              gradient: LinearGradient(
+                colors: [Color(0xFF9B6BFF), Color(0xFF6F7CFF)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Promo Terbaru',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    letterSpacing: 1.1,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Bundle hemat buku & merchandise',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Stok terbatas, cek katalog sekarang.',
+                  style: TextStyle(color: Colors.white70, height: 1.3),
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      foregroundColor: const Color(0xFF143155),
+                      backgroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      textStyle:
+                          const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+                    ),
+                    onPressed: () {},
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Text('Lihat Produk'),
+                        SizedBox(width: 6),
+                        Icon(Icons.shopping_bag_outlined, size: 14),
+                      ],
+                    ),
+                  ),
+                )
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Proxy image for web to avoid CORS; mobile uses original URL.
+String _storeImg(String url) {
+  if (kIsWeb) {
+    final clean = url.replaceFirst('https://', '').replaceFirst('http://', '');
+    return 'https://images.weserv.nl/?url=' + Uri.encodeComponent(clean);
+  }
+  return url;
 }
 
 class _GradientBackground extends StatelessWidget {
