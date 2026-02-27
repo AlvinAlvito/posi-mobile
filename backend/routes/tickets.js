@@ -31,7 +31,7 @@ const router = Router()
 })
 
 router.get('/admin/chat/tickets', authRequired('admin'), async (req, res) => {
-  const { status, competition_id, topic, competition_type } = req.query
+  const { status, competition_id, topic, competition_type, q } = req.query
   const params = []
   let sql = `SELECT t.id,
                     t.chat_topic   AS topic,
@@ -66,6 +66,11 @@ router.get('/admin/chat/tickets', authRequired('admin'), async (req, res) => {
   if (competition_type) {
     clauses.push('c.location_type = ?')
     params.push(competition_type)
+  }
+  if (q) {
+    clauses.push('(u.email LIKE ? OR u.name LIKE ? OR u.whatsapp LIKE ? OR t.summary LIKE ?)')
+    const like = `%${q}%`
+    params.push(like, like, like, like)
   }
   if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ')
   sql += ' ORDER BY t.last_message_at DESC LIMIT 500'
@@ -204,6 +209,15 @@ router.post('/admin/chat/tickets/:id/messages', authRequired('admin'), async (re
   }
 
   res.status(201).json({ ok: true, message })
+})
+
+// Admin update status tiket
+router.patch('/admin/chat/tickets/:id/status', authRequired('admin'), async (req, res) => {
+  const ticketId = req.params.id
+  const status = req.body?.status
+  if (!['Baru', 'Proses', 'Selesai'].includes(status)) return res.status(400).json({ message: 'Status tidak valid' })
+  await pool.execute('UPDATE chat_tickets SET chat_status = ? WHERE id = ?', [status, ticketId])
+  res.json({ ok: true, status })
 })
 
 // Tandai tiket telah dibaca (ubah status ke Proses)
