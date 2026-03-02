@@ -240,8 +240,15 @@ function TicketList({ tickets, activeId, onSelect, role, onReachEnd, hasMore, lo
         >
           <div className="ticket-avatar">{(t.user_name || "?")[0]}</div>
           <div className="ticket-info">
-            <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div className="ticket-name truncate">{t.user_name || "Pengguna"}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0, flex: 1 }}>
+                <div className="ticket-name truncate" style={{ minWidth: 0, flex: 1 }}>
+                  {t.user_name || "Pengguna"}
+                </div>
+                <span className="pill pill-ghost" style={{ padding: "2px 8px", fontSize: 11 }}>
+                  #{t.id}
+                </span>
+              </div>
               <span
                 className={`tag ${t.status === "Proses" ? "warning" : ""} ${
                   t.status === "Selesai" ? "success" : ""
@@ -294,6 +301,15 @@ function ChatPanel({
   const listRef = React.useRef(null);
   useEffect(() => setText(""), [ticket?.id]);
 
+  const toWhatsAppUrl = (rawNumber) => {
+    const digits = String(rawNumber || "").replace(/\D/g, "");
+    if (!digits) return null;
+    let normalized = digits;
+    if (normalized.startsWith("0")) normalized = `62${normalized.slice(1)}`;
+    else if (normalized.startsWith("8")) normalized = `62${normalized}`;
+    return `https://wa.me/${normalized}`;
+  };
+
   const entries = useMemo(() => buildMessageEntries(messages), [messages]);
 
   // auto-scroll to bottom when switching ticket or new messages
@@ -338,14 +354,30 @@ function ChatPanel({
             {ticket.whatsapp && (
               <div className="muted row tight">
                 <span className="meta-icon">☎</span>
-                <span>{ticket.whatsapp}</span>
+                {toWhatsAppUrl(ticket.whatsapp) ? (
+                  <a
+                    href={toWhatsAppUrl(ticket.whatsapp)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "#2563eb", fontWeight: 600, textDecoration: "none" }}
+                  >
+                    {ticket.whatsapp}
+                  </a>
+                ) : (
+                  <span>{ticket.whatsapp}</span>
+                )}
               </div>
             )}
           </div>
         </div>
         <div className="competition-card">
-          <div className="title">
-            {ticket.competitionTitle || "Tanpa Kompetisi"}
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <div className="title" style={{ flex: 1, minWidth: 0 }}>
+              {ticket.competitionTitle || "Tanpa Kompetisi"}
+            </div>
+            <span className="pill pill-ghost" style={{ fontSize: 12, fontWeight: 700 }}>
+              #{ticket.id}
+            </span>
           </div>
           <div className="muted">Perihal: {ticket.topic || "-"}</div>
           <div className="row" style={{ gap: 6, marginTop: 6 }}>

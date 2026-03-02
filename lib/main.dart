@@ -392,13 +392,28 @@ class ApiClient {
     return NewsItem.fromJson(data);
   }
 
-  Future<List<ResultItem>> fetchResults() async {
-    final res = await _dio.get<Map<String, dynamic>>('/api/results/offline');
+  Future<ResultPageData> fetchResults({int page = 1, int pageSize = 5}) async {
+    final res = await _dio.get<Map<String, dynamic>>(
+      '/api/results/offline',
+      queryParameters: {
+        'page': page,
+        'pageSize': pageSize,
+      },
+    );
     if (res.statusCode != null && res.statusCode! >= 400) {
       throw Exception('Gagal memuat hasil (${res.statusCode})');
     }
     final list = (res.data?['results'] as List?) ?? [];
-    return list.map((e) => ResultItem.fromJson(e as Map<String, dynamic>)).toList();
+    final pagination = (res.data?['pagination'] as Map?)?.cast<String, dynamic>() ?? {};
+    final total = pagination['total'] is int
+        ? pagination['total'] as int
+        : int.tryParse('${pagination['total'] ?? 0}') ?? 0;
+    final hasNextPage = pagination['hasNextPage'] == true;
+    return ResultPageData(
+      results: list.map((e) => ResultItem.fromJson(e as Map<String, dynamic>)).toList(),
+      total: total,
+      hasNextPage: hasNextPage,
+    );
   }
 
   // -------- Socket.IO --------
@@ -675,6 +690,18 @@ class ResultItem {
       );
 }
 
+class ResultPageData {
+  ResultPageData({
+    required this.results,
+    required this.total,
+    required this.hasNextPage,
+  });
+
+  final List<ResultItem> results;
+  final int total;
+  final bool hasNextPage;
+}
+
 class ProfileData {
   ProfileData({
     required this.id,
@@ -825,7 +852,8 @@ class PosiMobileApp extends StatelessWidget {
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF1E88E5),
             foregroundColor: Colors.white,
-            minimumSize: const Size.fromHeight(52),
+            // Keep a consistent minimum height without forcing infinite width.
+            minimumSize: const Size(0, 52),
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             textStyle: const TextStyle(fontWeight: FontWeight.w700),
@@ -2029,42 +2057,47 @@ class _ChatTabState extends State<ChatTab> {
                     ),
                   ),
                   Expanded(
-                    child: _loadingTickets
-                        ? const Center(child: CircularProgressIndicator())
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
-                            itemBuilder: (_, i) {
-                              final t = filteredTickets[i];
-                              return _ChatListItem(
-                                ticket: t,
-                                unread: _unreadTickets.contains(t.id),
-                                onTap: () => setState(() {
-                                  _activeId = t.id;
-                                  _showDetail = true;
-                                  _forceScrollNextLoad = true;
-                                  apiClient.joinTicketRoom(t.id);
-                                  _unreadTickets.remove(t.id);
-                                  apiClient.markTicketRead(t.id);
-                                  _loadMessages(t.id);
-                                }),
-                              );
-                            },
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 4),
-                            itemCount: filteredTickets.length,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: _loadingTickets
+                              ? const Center(child: CircularProgressIndicator())
+                              : ListView.separated(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(8, 10, 8, 96),
+                                  itemBuilder: (_, i) {
+                                    final t = filteredTickets[i];
+                                    return _ChatListItem(
+                                      ticket: t,
+                                      unread: _unreadTickets.contains(t.id),
+                                      onTap: () => setState(() {
+                                        _activeId = t.id;
+                                        _showDetail = true;
+                                        _forceScrollNextLoad = true;
+                                        apiClient.joinTicketRoom(t.id);
+                                        _unreadTickets.remove(t.id);
+                                        apiClient.markTicketRead(t.id);
+                                        _loadMessages(t.id);
+                                      }),
+                                    );
+                                  },
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 4),
+                                  itemCount: filteredTickets.length,
+                                ),
+                        ),
+                        Positioned(
+                          right: 20,
+                          bottom: 20,
+                          child: FloatingActionButton.extended(
+                            backgroundColor: const Color(0xFF25D366),
+                            foregroundColor: Colors.white,
+                            icon: const Icon(Icons.add),
+                            label: const Text('Buat percakapan'),
+                            onPressed: _openNewChatPage,
                           ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 20, bottom: 20),
-                    child: Align(
-                      alignment: Alignment.bottomRight,
-                      child: FloatingActionButton.extended(
-                        backgroundColor: const Color(0xFF25D366),
-                        foregroundColor: Colors.white,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Buat percakapan'),
-                        onPressed: _openNewChatPage,
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -2143,6 +2176,9 @@ class _InfoTabState extends State<InfoTab> {
   String _displayName = 'Pengguna';
   List<ResultItem> _results = [];
   bool _loadingResults = true;
+  bool _loadingMoreResults = false;
+  bool _hasMoreResults = false;
+  int _resultsPage = 1;
   String? _resultsError;
 
   @override
@@ -2163,19 +2199,42 @@ class _InfoTabState extends State<InfoTab> {
     }
   }
 
-  Future<void> _loadResults() async {
+  Future<void> _loadResults({int page = 1, bool append = false}) async {
     setState(() {
-      _loadingResults = true;
-      _resultsError = null;
+      if (append) {
+        _loadingMoreResults = true;
+      } else {
+        _loadingResults = true;
+        _resultsError = null;
+      }
     });
     try {
-      final res = await apiClient.fetchResults();
-      if (mounted) setState(() => _results = res);
+      final res = await apiClient.fetchResults(page: page, pageSize: 5);
+      if (!mounted) return;
+      setState(() {
+        if (append) {
+          _results = [..._results, ...res.results];
+        } else {
+          _results = res.results;
+        }
+        _resultsPage = page;
+        _hasMoreResults = res.hasNextPage;
+      });
     } catch (e) {
       if (mounted) setState(() => _resultsError = 'Gagal memuat hasil: $e');
     } finally {
-      if (mounted) setState(() => _loadingResults = false);
+      if (mounted) {
+        setState(() {
+          _loadingResults = false;
+          _loadingMoreResults = false;
+        });
+      }
     }
+  }
+
+  Future<void> _loadMoreResults() async {
+    if (_loadingMoreResults || !_hasMoreResults) return;
+    await _loadResults(page: _resultsPage + 1, append: true);
   }
 
   @override
@@ -2219,7 +2278,10 @@ class _InfoTabState extends State<InfoTab> {
                     loading: _loadingResults,
                     error: _resultsError,
                     results: _results,
-                    onRetry: _loadResults,
+                    hasMore: _hasMoreResults,
+                    loadingMore: _loadingMoreResults,
+                    onLoadMore: _loadMoreResults,
+                    onRetry: () => _loadResults(page: 1),
                   ),
                 ],
               ),
@@ -2291,6 +2353,14 @@ class _MiniCard extends StatelessWidget {
   final List<Color> colors;
   final double minHeight;
 
+  Future<void> _openCompetitions() async {
+    const url = 'https://posi.id/competitions';
+    final opened = await launchUrlString(url, mode: LaunchMode.externalApplication);
+    if (!opened) {
+      await launchUrlString(url);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -2344,7 +2414,7 @@ class _MiniCard extends StatelessWidget {
               textStyle:
                   const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
             ),
-            onPressed: () {},
+            onPressed: () async => _openCompetitions(),
             child: const Text('Lihat'),
           ),
         ],
@@ -2564,12 +2634,18 @@ class _ResultSection extends StatelessWidget {
     required this.loading,
     required this.error,
     required this.results,
+    required this.hasMore,
+    required this.loadingMore,
+    required this.onLoadMore,
     required this.onRetry,
   });
 
   final bool loading;
   final String? error;
   final List<ResultItem> results;
+  final bool hasMore;
+  final bool loadingMore;
+  final VoidCallback onLoadMore;
   final VoidCallback onRetry;
 
   @override
@@ -2613,12 +2689,25 @@ class _ResultSection extends StatelessWidget {
           )
         else
           Column(
-            children: results
-                .map((r) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _ResultCard(item: r),
-                    ))
-                .toList(),
+            children: [
+              ...results.map((r) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _ResultCard(item: r),
+                  )),
+              if (hasMore)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Center(
+                    child: ElevatedButton(
+                      onPressed: loadingMore ? null : onLoadMore,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                      ),
+                      child: Text(loadingMore ? 'Memuat...' : 'Muat Lagi'),
+                    ),
+                  ),
+                ),
+            ],
           ),
       ],
     );
@@ -2629,6 +2718,14 @@ class _ResultCard extends StatelessWidget {
   const _ResultCard({required this.item});
 
   final ResultItem item;
+
+  Future<void> _openPosiWeb() async {
+    const url = 'https://posi.id/';
+    final opened = await launchUrlString(url, mode: LaunchMode.externalApplication);
+    if (!opened) {
+      await launchUrlString(url);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2713,7 +2810,7 @@ class _ResultCard extends StatelessWidget {
           Row(
             children: [
               ElevatedButton(
-                onPressed: () {},
+                onPressed: () async => _openPosiWeb(),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF4F46E5),
                   foregroundColor: Colors.white,
@@ -2725,7 +2822,7 @@ class _ResultCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               OutlinedButton(
-                onPressed: () {},
+                onPressed: () async => _openPosiWeb(),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFF143155),
                   side: const BorderSide(color: Color(0xFFD4E4FF)),
@@ -3493,6 +3590,14 @@ class _UpcomingCard extends StatelessWidget {
   final String badge;
   final List<Color> gradient;
 
+  Future<void> _openCompetitions() async {
+    const url = 'https://posi.id/competitions';
+    final opened = await launchUrlString(url, mode: LaunchMode.externalApplication);
+    if (!opened) {
+      await launchUrlString(url);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -3555,7 +3660,7 @@ class _UpcomingCard extends StatelessWidget {
             children: [
               TextButton(
                 style: _pillButtonStyle(),
-                onPressed: () {},
+                onPressed: () async => _openCompetitions(),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: const [
