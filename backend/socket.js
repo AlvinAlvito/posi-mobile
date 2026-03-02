@@ -43,6 +43,10 @@ export function createSocket(httpServer) {
 
   io.on('connection', (socket) => {
     console.log('[socket] connected', socket.id, 'user', socket.user?.id, 'role', socket.user?.role)
+    if (socket.user?.id) {
+      socket.join(`user:${socket.user.id}`)
+      console.log('[socket] join-user', socket.user.id)
+    }
     socket.on('join-ticket', (ticketId) => {
       console.log('[socket] join-ticket', ticketId, 'user', socket.user?.id)
       socket.join(`ticket:${ticketId}`)
@@ -73,6 +77,7 @@ export function createSocket(httpServer) {
         const rows = await query('SELECT user_id FROM chat_tickets WHERE id = ? LIMIT 1', [ticketId])
         const userId = rows[0]?.user_id
         if (userId) {
+          io.to(`user:${userId}`).emit('message:new', { ...message, ticket_id: Number(ticketId) })
           const tokens = await query('SELECT token FROM chat_device_tokens WHERE user_id = ? AND revoked_at IS NULL', [userId])
           const tokenList = tokens.map((t) => t.token)
           console.log('[push] admin->user', { ticketId, userId, tokens: tokenList.length })

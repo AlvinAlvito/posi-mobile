@@ -5,6 +5,7 @@ const ROUTES = {
   LOGIN: "#/login",
   USER: "#/user",
   DASHBOARD: "#/dashboard",
+  BROADCAST: "#/broadcast",
 };
 
 function apiClient(token) {
@@ -189,10 +190,49 @@ function RoleSelect({ onPick, onLogout }) {
   );
 }
 
-function TicketList({ tickets, activeId, onSelect, role }) {
+function TicketList({ tickets, activeId, onSelect, role, onReachEnd, hasMore, loadingMore }) {
+  const listRef = React.useRef(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(560);
+  const rowHeight = 134;
+  const overscan = 8;
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const sync = () => {
+      setScrollTop(el.scrollTop);
+      setViewportHeight(el.clientHeight || 560);
+      if (
+        onReachEnd &&
+        hasMore &&
+        !loadingMore &&
+        el.scrollTop + el.clientHeight >= el.scrollHeight - 280
+      ) {
+        onReachEnd();
+      }
+    };
+    sync();
+    el.addEventListener("scroll", sync);
+    window.addEventListener("resize", sync);
+    return () => {
+      el.removeEventListener("scroll", sync);
+      window.removeEventListener("resize", sync);
+    };
+  }, [onReachEnd, hasMore, loadingMore, tickets.length]);
+
+  const total = tickets.length;
+  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  const visibleCount = Math.max(12, Math.ceil(viewportHeight / rowHeight) + overscan * 2);
+  const endIndex = Math.min(total, startIndex + visibleCount);
+  const visible = tickets.slice(startIndex, endIndex);
+  const topPad = startIndex * rowHeight;
+  const bottomPad = Math.max(0, (total - endIndex) * rowHeight);
+
   return (
-    <div className="ticket-list">
-      {tickets.map((t) => (
+    <div className="ticket-list" ref={listRef}>
+      {topPad > 0 && <div style={{ height: topPad }} />}
+      {visible.map((t) => (
         <div
           key={t.id}
           className={`ticket-card ${activeId === t.id ? "active" : ""}`}
@@ -230,11 +270,26 @@ function TicketList({ tickets, activeId, onSelect, role }) {
           </div>
         </div>
       ))}
+      {bottomPad > 0 && <div style={{ height: bottomPad }} />}
+      {loadingMore && <div className="muted" style={{ padding: "6px 8px 14px" }}>Memuat tiket berikutnya...</div>}
+      {!hasMore && tickets.length > 0 && (
+        <div className="muted" style={{ padding: "6px 8px 14px" }}>Semua tiket sudah ditampilkan</div>
+      )}
     </div>
   );
 }
 
-function ChatPanel({ ticket, messages, onSend, onStatusChange, sending, onRefresh, totalTickets, socketConnected }) {
+function ChatPanel({
+  ticket,
+  messages,
+  onSend,
+  onStatusChange,
+  sending,
+  onRefresh,
+  onBroadcast,
+  totalTickets,
+  socketConnected,
+}) {
   const [text, setText] = useState("");
   const listRef = React.useRef(null);
   useEffect(() => setText(""), [ticket?.id]);
@@ -266,7 +321,7 @@ function ChatPanel({ ticket, messages, onSend, onStatusChange, sending, onRefres
           <button className="chip ghost" onClick={onRefresh}>
             🔄 Refresh
           </button>
-          <button className="chip strong" onClick={() => {}}>
+          <button className="chip strong" onClick={onBroadcast}>
             📢 Broadcast / Reminder
           </button>
         </div>
@@ -366,9 +421,10 @@ function ChatPanel({ ticket, messages, onSend, onStatusChange, sending, onRefres
   );
 }
 
-function Dashboard({ token, role, onBack, onLogout }) {
+function Dashboard({ token, role, onBack, onLogout, onBroadcast }) {
   const [tickets, setTickets] = useState([]);
   const [active, setActive] = useState(null);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [messages, setMessages] = useState([]);
   const [sending, setSending] = useState(false);
@@ -376,8 +432,29 @@ function Dashboard({ token, role, onBack, onLogout }) {
   const [socketConnected, setSocketConnected] = useState(false);
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [loadingTickets, setLoadingTickets] = useState(false);
+  const [loadingMoreTickets, setLoadingMoreTickets] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalTickets, setTotalTickets] = useState(0);
+  const [summary, setSummary] = useState({ total: 0, baru: 0, proses: 0, selesai: 0 });
+  const activeIdRef = React.useRef(null);
+  const pageRef = React.useRef(1);
+  const loadingTicketsRef = React.useRef(false);
+  const loadingMoreRef = React.useRef(false);
 
   const api = useMemo(() => apiClient(token), [token]);
+
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setSearch(searchInput.trim());
+    }, 400);
+    return () => clearTimeout(id);
+  }, [searchInput]);
+
+  useEffect(() => {
+    activeIdRef.current = active?.id || null;
+  }, [active?.id]);
 
   // init socket once
  useEffect(() => {
@@ -391,16 +468,16 @@ function Dashboard({ token, role, onBack, onLogout }) {
      auth: token ? { token } : {},
      extraHeaders: token ? { Authorization: `Bearer ${token}` } : {},
    });
-   s.on("connect_error", (err) => setError(`Socket error: ${err.message}`));
-   s.on("connect", () => {
+  s.on("connect_error", (err) => setError(`Socket error: ${err.message}`));
+  s.on("connect", () => {
      setSocketConnected(true);
-     if (active?.id) s.emit("join-ticket", active.id);
+     if (activeIdRef.current) s.emit("join-ticket", activeIdRef.current);
    });
     s.on("disconnect", () => setSocketConnected(false));
    s.on("message:new", (m) => {
      const ticketId = m.ticket_id || m.ticketId;
       setMessages((prev) => {
-        if (!(active && ticketId === active.id)) return prev;
+        if (!(activeIdRef.current && ticketId === activeIdRef.current)) return prev;
         if (m.id && prev.some((x) => x.id === m.id)) return prev;
         const sig = `${m.text}-${m.createdAt || ""}-${m.senderType || ""}`;
         if (!m.id && prev.some((x) => `${x.text}-${x.createdAt || ""}-${x.senderType || ""}` === sig)) return prev;
@@ -416,26 +493,93 @@ function Dashboard({ token, role, onBack, onLogout }) {
     });
     setSocket(s);
     return () => s.disconnect();
-  }, [token, active?.id]);
+  }, [token]);
 
-  const loadTickets = async () => {
+  const buildTicketParams = (nextPage = 1) => {
     const params = {};
     if (statusFilter !== "all") params.status = statusFilter;
     if (search.trim()) params.q = search.trim();
+    // terapkan filter default sesuai peran admin
+    if (role?.competitionType && role.competitionType !== "all") {
+      params.competition_type = role.competitionType;
+    }
+    if (role?.topic && role.topic !== "all") {
+      params.topic = role.topic;
+    }
+    params.page = nextPage;
+    params.pageSize = 50;
+    return params;
+  };
+
+  const fetchSummary = async () => {
+    try {
+      const params = buildTicketParams(1);
+      delete params.page;
+      delete params.pageSize;
+      delete params.status;
+      const res = await api.get("/api/admin/chat/tickets/summary", {
+        params: { ...params, _ts: Date.now() },
+      });
+      setSummary(res.data?.summary || { total: 0, baru: 0, proses: 0, selesai: 0 });
+    } catch (_) {}
+  };
+
+  const loadTickets = async ({ reset = false } = {}) => {
+    if (reset && loadingTicketsRef.current) return;
+    if (!reset && (loadingMoreRef.current || loadingTicketsRef.current)) return;
+    const nextPage = reset ? 1 : pageRef.current + 1;
+    if (reset) {
+      loadingTicketsRef.current = true;
+      setLoadingTickets(true);
+    } else {
+      loadingMoreRef.current = true;
+      setLoadingMoreTickets(true);
+    }
     try {
       const res = await api.get("/api/admin/chat/tickets", {
-        params: { ...params, _ts: Date.now() },
+        params: { ...buildTicketParams(nextPage), _ts: Date.now() },
         headers: { "Cache-Control": "no-cache" },
       });
       const list = res.data.tickets || [];
-      setTickets(list);
-      if (!active && list.length) {
-        setActive(list[0]);
-      } else if (active && list.every((t) => t.id !== active.id)) {
-        setActive(list[0] || null);
+      const pagination = res.data?.pagination || {};
+      const serverPage = Number(pagination.page || nextPage);
+      pageRef.current = serverPage;
+      setPage(serverPage);
+      setHasMore(Boolean(pagination.hasMore));
+      setTotalTickets(Number(pagination.total || 0));
+
+      let mergedList = list;
+      if (!reset) {
+        setTickets((prev) => {
+          const existingIds = new Set(prev.map((t) => t.id));
+          const appended = list.filter((t) => !existingIds.has(t.id));
+          mergedList = [...prev, ...appended];
+          return mergedList;
+        });
+      } else {
+        setTickets(list);
+      }
+      if (!reset) {
+        if (active && mergedList.every((t) => t.id !== active.id)) {
+          setActive(mergedList[0] || null);
+        }
+      } else {
+        if (!active && list.length) {
+          setActive(list[0]);
+        } else if (active && list.every((t) => t.id !== active.id)) {
+          setActive(list[0] || null);
+        }
       }
     } catch (e) {
       setError("Gagal memuat tiket");
+    } finally {
+      if (reset) {
+        loadingTicketsRef.current = false;
+        setLoadingTickets(false);
+      } else {
+        loadingMoreRef.current = false;
+        setLoadingMoreTickets(false);
+      }
     }
   };
 
@@ -450,11 +594,8 @@ function Dashboard({ token, role, onBack, onLogout }) {
   };
 
   useEffect(() => {
-    loadTickets();
-  }, []);
-
-  useEffect(() => {
-    loadTickets();
+    loadTickets({ reset: true });
+    fetchSummary();
   }, [statusFilter, search, role?.competitionType, role?.topic]);
   useEffect(() => {
     if (active) {
@@ -537,13 +678,26 @@ function Dashboard({ token, role, onBack, onLogout }) {
           <input
             className="input"
             placeholder="Cari nama / email / identitas..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
-          <button className="chip ghost" onClick={() => loadTickets()}>🔍 Cari</button>
+          <button
+            className="chip ghost"
+            onClick={() => {
+              setSearch(searchInput.trim());
+            }}
+          >
+            🔍 Cari
+          </button>
         </div>
         <div className="filter-group">
           <div className="filter-label">📊 Status</div>
+          <div className="row" style={{ marginBottom: 8 }}>
+            <span className="pill">Total {summary.total}</span>
+            <span className="pill pill-ghost">Baru {summary.baru}</span>
+            <span className="pill pill-ghost">Proses {summary.proses}</span>
+            <span className="pill pill-ghost">Selesai {summary.selesai}</span>
+          </div>
           <div className="row status-row">
             {["all", "Baru", "Proses", "Selesai"].map((s) => (
               <button
@@ -556,12 +710,21 @@ function Dashboard({ token, role, onBack, onLogout }) {
             ))}
           </div>
         </div>
+        {loadingTickets ? (
+          <div className="empty">Memuat daftar tiket...</div>
+        ) : (
         <TicketList
           tickets={tickets}
           activeId={active?.id}
           onSelect={(t) => setActive(t)}
           role={role}
+          onReachEnd={() => {
+            if (hasMore && !loadingMoreTickets) loadTickets({ reset: false });
+          }}
+          hasMore={hasMore}
+          loadingMore={loadingMoreTickets}
         />
+        )}
       </div>
       <ChatPanel
         ticket={active}
@@ -569,10 +732,369 @@ function Dashboard({ token, role, onBack, onLogout }) {
         onSend={handleSend}
         onStatusChange={handleStatusChange}
         sending={sending}
-        onRefresh={() => loadTickets()}
-        totalTickets={tickets.length}
+        onRefresh={() => {
+          loadTickets({ reset: true });
+          fetchSummary();
+        }}
+        onBroadcast={onBroadcast}
+        totalTickets={totalTickets || tickets.length}
         socketConnected={socketConnected}
       />
+    </div>
+  );
+}
+
+function BroadcastPage({ token, role, onBack, onLogout }) {
+  const [broadcasts, setBroadcasts] = useState([]);
+  const [competitions, setCompetitions] = useState([]);
+  const [competitionId, setCompetitionId] = useState("");
+  const [subject, setSubject] = useState("Pendaftaran");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [resumingId, setResumingId] = useState(null);
+  const [retryingId, setRetryingId] = useState(null);
+  const [detailOpenId, setDetailOpenId] = useState(null);
+  const [failedTargetsByBroadcast, setFailedTargetsByBroadcast] = useState({});
+  const [selectedFailedTargetIds, setSelectedFailedTargetIds] = useState([]);
+  const [loadingFailedTargets, setLoadingFailedTargets] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const api = useMemo(() => apiClient(token), [token]);
+
+  const loadData = async () => {
+    try {
+      const [bRes, cRes] = await Promise.all([
+        api.get("/api/admin/broadcasts", { params: { _ts: Date.now() } }),
+        api.get("/api/competitions"),
+      ]);
+      setBroadcasts(bRes.data.broadcasts || []);
+      setCompetitions(cRes.data.competitions || cRes.data.data || []);
+    } catch (e) {
+      setError("Gagal memuat data broadcast");
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!competitionId || !subject || !message) {
+      setError("Lengkapi kompetisi, perihal, dan pesan");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    setSuccess("");
+    try {
+      await api.post("/api/admin/broadcasts", {
+        competition_id: Number(competitionId),
+        subject,
+        message,
+        topic: subject,
+      });
+      setSuccess("Broadcast berhasil diantrikan, pengiriman berjalan bertahap.");
+      setMessage("");
+      await loadData();
+    } catch (e) {
+      const msg = e.response?.data?.message || "Broadcast gagal dikirim";
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResume = async (broadcastId) => {
+    setError("");
+    setSuccess("");
+    setResumingId(broadcastId);
+    try {
+      await api.post(`/api/admin/broadcasts/${broadcastId}/resume`);
+      setSuccess("Proses pengiriman dilanjutkan.");
+      await loadData();
+    } catch (e) {
+      const msg = e.response?.data?.message || "Gagal melanjutkan pengiriman";
+      setError(msg);
+    } finally {
+      setResumingId(null);
+    }
+  };
+
+  const loadFailedTargets = async (broadcastId) => {
+    setLoadingFailedTargets(true);
+    try {
+      const res = await api.get(`/api/admin/broadcasts/${broadcastId}/targets`, {
+        params: { status: "failed", page: 1, pageSize: 100 },
+      });
+      const targets = res.data?.targets || [];
+      setFailedTargetsByBroadcast((prev) => ({ ...prev, [broadcastId]: targets }));
+      setSelectedFailedTargetIds(targets.map((t) => t.id));
+      setDetailOpenId(broadcastId);
+    } catch (e) {
+      const msg = e.response?.data?.message || "Gagal memuat daftar target gagal";
+      setError(msg);
+    } finally {
+      setLoadingFailedTargets(false);
+    }
+  };
+
+  const toggleFailedTarget = (targetId) => {
+    setSelectedFailedTargetIds((prev) =>
+      prev.includes(targetId) ? prev.filter((id) => id !== targetId) : [...prev, targetId]
+    );
+  };
+
+  const retrySelectedTargets = async (broadcastId) => {
+    if (!selectedFailedTargetIds.length) {
+      setError("Pilih minimal satu target gagal untuk dilanjutkan.");
+      return;
+    }
+    setRetryingId(broadcastId);
+    setError("");
+    setSuccess("");
+    try {
+      await api.post(`/api/admin/broadcasts/${broadcastId}/retry-targets`, {
+        target_ids: selectedFailedTargetIds,
+      });
+      setSuccess(`Retry ${selectedFailedTargetIds.length} target berhasil diantrikan.`);
+      setSelectedFailedTargetIds([]);
+      await Promise.all([loadData(), loadFailedTargets(broadcastId)]);
+    } catch (e) {
+      const msg = e.response?.data?.message || "Gagal retry target terpilih";
+      setError(msg);
+    } finally {
+      setRetryingId(null);
+    }
+  };
+
+  useEffect(() => {
+    const hasRunning = broadcasts.some((b) => b.status === "sending");
+    if (!hasRunning) return;
+    const id = setInterval(() => {
+      loadData();
+    }, 2500);
+    return () => clearInterval(id);
+  }, [broadcasts]);
+
+  const progressText = (b) => {
+    const total = Number(b.totalTargets || 0);
+    const sent = Number(b.sentTargets || 0);
+    const failed = Number(b.failedTargets || 0);
+    const pending = Number(b.pendingTargets || 0);
+    const processed = Number(
+      b.processedTargets != null ? b.processedTargets : sent + failed
+    );
+    const statusText =
+      b.status === "sending"
+        ? "sedang dalam proses"
+        : b.status === "sent"
+          ? "selesai"
+          : "gagal";
+    return `Target: ${sent} dari ${total} peserta terkirim (${statusText}) • diproses ${processed}/${total}, gagal ${failed}, pending ${pending}`;
+  };
+
+  const progressPercent = (b) => {
+    const total = Number(b.totalTargets || 0);
+    if (!total) return 0;
+    if (b.progressPct != null) return Number(b.progressPct);
+    const sent = Number(b.sentTargets || 0);
+    const failed = Number(b.failedTargets || 0);
+    return Math.min(100, Math.round(((sent + failed) / total) * 100));
+  };
+
+  const statusClass = (status) => {
+    if (status === "sent") return "is-sent";
+    if (status === "sending") return "is-sending";
+    if (status === "failed") return "is-failed";
+    return "is-default";
+  };
+
+  return (
+    <div className="layout broadcast-layout">
+      <div className="sidebar broadcast-sidebar">
+        <div className="row broadcast-header">
+          <div className="broadcast-header-copy">
+            <h3 className="broadcast-title">Broadcast / Reminder</h3>
+            <div className="muted broadcast-subtitle">
+              Kirim pesan massal ke peserta kompetisi.
+            </div>
+          </div>
+          <div className="row broadcast-header-actions">
+            <button className="chip ghost" onClick={onBack}>
+              ⬅ Kembali
+            </button>
+            <button className="chip ghost" onClick={onLogout}>
+              Logout
+            </button>
+          </div>
+        </div>
+        <div className="form-card broadcast-form-card">
+          <form onSubmit={handleSubmit}>
+            <label className="muted">Kompetisi</label>
+            <select
+              className="input"
+              value={competitionId}
+              onChange={(e) => setCompetitionId(e.target.value)}
+              required
+            >
+              <option value="">Pilih kompetisi</option>
+              {competitions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
+            </select>
+            <label className="muted" style={{ marginTop: 12 }}>
+              Perihal
+            </label>
+            <select
+              className="input"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+            >
+              <option value="Pendaftaran">Pendaftaran</option>
+              <option value="Pemesanan">Pemesanan</option>
+              <option value="Lainnya">Lainnya</option>
+            </select>
+            <label className="muted" style={{ marginTop: 12 }}>
+              Pesan
+            </label>
+            <textarea
+              className="input"
+              rows={5}
+              placeholder="Isi pesan broadcast"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              required
+            />
+            {error && <div className="alert error broadcast-inline-alert">{error}</div>}
+            {success && <div className="alert success broadcast-inline-alert">{success}</div>}
+            <div className="row broadcast-form-actions">
+              <button type="button" className="chip ghost" onClick={() => setMessage("")} disabled={loading}>
+                Batal
+              </button>
+              <button className="chip strong" type="submit" disabled={loading}>
+                📢 {loading ? "Mengirim..." : "Kirim"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div className="content broadcast-list">
+        <div className="toolbar broadcast-toolbar">
+          <div>
+            <div className="title">Riwayat Broadcast</div>
+            <div className="muted row tight">
+              <span>Total: {broadcasts.length}</span>
+            </div>
+          </div>
+          <button className="chip ghost" onClick={loadData}>
+            🔄 Refresh
+          </button>
+        </div>
+        {broadcasts.length === 0 ? (
+          <div className="empty">Belum ada broadcast.</div>
+        ) : (
+          <div className="broadcast-cards">
+            {broadcasts.map((b) => (
+              <div key={b.id} className="card broadcast-card">
+                <div className="row broadcast-card-head">
+                  <div className="broadcast-head-copy">
+                    <div className="title broadcast-card-title">{b.title}</div>
+                    <div className="muted broadcast-card-subtitle">{b.competitionTitle || "Tanpa kompetisi"}</div>
+                  </div>
+                  <span className={`tag broadcast-status ${statusClass(b.status)}`}>
+                    {b.status}
+                  </span>
+                </div>
+                <div className="muted broadcast-card-body">
+                  {b.body}
+                </div>
+                <div className="muted broadcast-progress-text">
+                  {progressText(b)}
+                </div>
+                <div className="broadcast-progress">
+                  <div className="broadcast-progress-bar">
+                    <div
+                      className="broadcast-progress-fill"
+                      style={{ width: `${progressPercent(b)}%` }}
+                    />
+                  </div>
+                  <span className="broadcast-progress-pct">{progressPercent(b)}%</span>
+                </div>
+                <div className="row broadcast-card-meta">
+                  <span>Target total: {b.totalTargets || 0}</span>
+                  <span>Sent: {b.sentAt ? formatTime(b.sentAt) : "-"}</span>
+                  {Number(b.failedTargets || 0) > 0 && (
+                    <button
+                      className="chip ghost"
+                      onClick={() =>
+                        detailOpenId === b.id ? setDetailOpenId(null) : loadFailedTargets(b.id)
+                      }
+                    >
+                      {detailOpenId === b.id ? "Tutup Detail Gagal" : "Lihat Target Gagal"}
+                    </button>
+                  )}
+                  {b.status === "failed" && (
+                    <button
+                      className="chip strong"
+                      onClick={() => handleResume(b.id)}
+                      disabled={resumingId === b.id}
+                    >
+                      {resumingId === b.id ? "Melanjutkan..." : "Lanjutkan Proses"}
+                    </button>
+                  )}
+                </div>
+                {detailOpenId === b.id && (
+                  <div className="broadcast-failed-detail">
+                    <div className="row broadcast-failed-header">
+                      <div className="muted broadcast-failed-title">
+                        Detail target gagal
+                      </div>
+                      <button
+                        className="chip strong"
+                        onClick={() => retrySelectedTargets(b.id)}
+                        disabled={retryingId === b.id || !selectedFailedTargetIds.length}
+                      >
+                        {retryingId === b.id ? "Retry..." : `Retry Terpilih (${selectedFailedTargetIds.length})`}
+                      </button>
+                    </div>
+                    {loadingFailedTargets ? (
+                      <div className="muted">Memuat target gagal...</div>
+                    ) : (
+                      <div className="broadcast-failed-list">
+                        {(failedTargetsByBroadcast[b.id] || []).length === 0 ? (
+                          <div className="muted broadcast-failed-empty">Tidak ada target gagal.</div>
+                        ) : (
+                          (failedTargetsByBroadcast[b.id] || []).map((t) => (
+                            <label
+                              key={t.id}
+                              className="broadcast-failed-item"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedFailedTargetIds.includes(t.id)}
+                                onChange={() => toggleFailedTarget(t.id)}
+                              />
+                              <div className="broadcast-failed-copy">
+                                <div><strong>{t.userName || "Tanpa Nama"}</strong> ({t.userEmail || "-"})</div>
+                                <div className="muted">Target #{t.id} · User #{t.userId}</div>
+                                <div className="muted">Error: {t.error || "unknown error"}</div>
+                              </div>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -596,7 +1118,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!selectedRole && route === ROUTES.DASHBOARD) {
+    if (!selectedRole && (route === ROUTES.DASHBOARD || route === ROUTES.BROADCAST)) {
       navigate(ROUTES.USER);
     }
   }, [selectedRole, route]);
@@ -650,6 +1172,18 @@ function App() {
         token={token}
         role={selectedRole}
         onBack={() => navigate(ROUTES.USER)}
+        onLogout={logout}
+        onBroadcast={() => navigate(ROUTES.BROADCAST)}
+      />
+    );
+  }
+
+  if (route === ROUTES.BROADCAST) {
+    return (
+      <BroadcastPage
+        token={token}
+        role={selectedRole}
+        onBack={() => navigate(ROUTES.DASHBOARD)}
         onLogout={logout}
       />
     );

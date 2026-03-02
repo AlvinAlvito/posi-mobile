@@ -6,6 +6,35 @@ import { sendPush } from '../fcm.js'
 
 const router = Router()
 
+function buildAdminTicketFilters(queryObj, { includeStatus = true } = {}) {
+  const { status, competition_id, topic, competition_type, q } = queryObj || {}
+  const clauses = []
+  const params = []
+
+  if (includeStatus && status) {
+    clauses.push('t.chat_status = ?')
+    params.push(status)
+  }
+  if (competition_id) {
+    clauses.push('t.competition_id = ?')
+    params.push(competition_id)
+  }
+  if (topic) {
+    clauses.push('t.chat_topic = ?')
+    params.push(topic)
+  }
+  if (competition_type) {
+    clauses.push('c.location_type = ?')
+    params.push(competition_type)
+  }
+  if (q) {
+    clauses.push('(u.email LIKE ? OR u.name LIKE ? OR u.whatsapp LIKE ? OR t.summary LIKE ?)')
+    const like = `%${q}%`
+    params.push(like, like, like, like)
+  }
+  return { clauses, params }
+}
+
 // GET /chat/tickets (user) or /admin/chat/tickets (admin)
  router.get('/chat/tickets', authRequired(), async (req, res) => {
   const userId = req.user.id
@@ -30,9 +59,44 @@ const router = Router()
   res.json({ tickets: rows })
 })
 
+router.get('/admin/chat/tickets/summary', authRequired('admin'), async (req, res) => {
+  const { clauses, params } = buildAdminTicketFilters(req.query, { includeStatus: false })
+  let whereSql = ''
+  if (clauses.length) whereSql = `WHERE ${clauses.join(' AND ')}`
+  const rows = await query(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN t.chat_status = 'Baru' THEN 1 ELSE 0 END) AS baru,
+            SUM(CASE WHEN t.chat_status = 'Proses' THEN 1 ELSE 0 END) AS proses,
+            SUM(CASE WHEN t.chat_status = 'Selesai' THEN 1 ELSE 0 END) AS selesai
+       FROM chat_tickets t
+  LEFT JOIN competitions c ON c.id = t.competition_id
+  LEFT JOIN users u ON u.id = t.user_id
+      ${whereSql}`,
+    params
+  )
+  const summary = rows[0] || {}
+  res.json({
+    summary: {
+      total: Number(summary.total || 0),
+      baru: Number(summary.baru || 0),
+      proses: Number(summary.proses || 0),
+      selesai: Number(summary.selesai || 0),
+    },
+  })
+})
+
 router.get('/admin/chat/tickets', authRequired('admin'), async (req, res) => {
-  const { status, competition_id, topic, competition_type, q } = req.query
-  const params = []
+  const rawPage = Array.isArray(req.query.page) ? req.query.page[0] : req.query.page
+  const rawPageSize = Array.isArray(req.query.pageSize) ? req.query.pageSize[0] : req.query.pageSize
+  const pageNum = Number(rawPage)
+  const pageSizeNum = Number(rawPageSize)
+  const page = Number.isFinite(pageNum) && pageNum > 0 ? Math.floor(pageNum) : 1
+  const pageSize = Number.isFinite(pageSizeNum)
+    ? Math.min(100, Math.max(10, Math.floor(pageSizeNum)))
+    : 50
+  const offset = (page - 1) * pageSize
+  const { clauses, params } = buildAdminTicketFilters(req.query, { includeStatus: true })
+
   let sql = `SELECT t.id,
                     t.chat_topic   AS topic,
                     t.summary,
@@ -50,32 +114,31 @@ router.get('/admin/chat/tickets', authRequired('admin'), async (req, res) => {
              LEFT JOIN competitions c ON c.id = t.competition_id
              LEFT JOIN users u ON u.id = t.user_id
              LEFT JOIN chat_messages lm ON lm.id = t.last_message_id`
-  const clauses = []
-  if (status) {
-    clauses.push('t.chat_status = ?')
-    params.push(status)
-  }
-  if (competition_id) {
-    clauses.push('t.competition_id = ?')
-    params.push(competition_id)
-  }
-  if (topic) {
-    clauses.push('t.chat_topic = ?')
-    params.push(topic)
-  }
-  if (competition_type) {
-    clauses.push('c.location_type = ?')
-    params.push(competition_type)
-  }
-  if (q) {
-    clauses.push('(u.email LIKE ? OR u.name LIKE ? OR u.whatsapp LIKE ? OR t.summary LIKE ?)')
-    const like = `%${q}%`
-    params.push(like, like, like, like)
-  }
   if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ')
-  sql += ' ORDER BY t.last_message_at DESC LIMIT 500'
+  // Use validated numeric literals for LIMIT/OFFSET to avoid driver/server binding issues.
+  sql += ` ORDER BY t.last_message_at DESC LIMIT ${pageSize} OFFSET ${offset}`
   const rows = await query(sql, params)
-  res.json({ tickets: rows })
+
+  let countSql = `SELECT COUNT(*) AS total
+                    FROM chat_tickets t
+               LEFT JOIN competitions c ON c.id = t.competition_id
+               LEFT JOIN users u ON u.id = t.user_id`
+  if (clauses.length) countSql += ' WHERE ' + clauses.join(' AND ')
+  const countRows = await query(countSql, params)
+  const total = Number(countRows[0]?.total || 0)
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const hasMore = page < totalPages
+
+  res.json({
+    tickets: rows,
+    pagination: {
+      page,
+      pageSize,
+      total,
+      totalPages,
+      hasMore,
+    },
+  })
 })
 
 router.post('/chat/tickets', authRequired(), async (req, res) => {
@@ -188,6 +251,7 @@ router.post('/admin/chat/tickets/:id/messages', authRequired('admin'), async (re
     const rows = await query('SELECT user_id FROM chat_tickets WHERE id = ? LIMIT 1', [ticketId])
     const userId = rows[0]?.user_id
     if (userId) {
+      if (io) io.to(`user:${userId}`).emit('message:new', { ...message, ticket_id: Number(ticketId) })
       const tokens = await query(
         'SELECT token FROM chat_device_tokens WHERE user_id = ? AND (revoked_at IS NULL OR revoked_at > NOW())',
         [userId]
