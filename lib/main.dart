@@ -889,26 +889,214 @@ class _Root extends StatefulWidget {
 
 class _RootState extends State<_Root> {
   bool _loggedIn = false;
+  bool _showSplash = true;
 
   @override
   void initState() {
     super.initState();
     // Auto-login jika token tersimpan dari sesi sebelumnya
     _loggedIn = apiClient.authToken != null;
+    Future.delayed(const Duration(milliseconds: 1900), () {
+      if (mounted) setState(() => _showSplash = false);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 320),
-      child: _loggedIn
-          ? MainShell(
-              onLogout: () async {
-                await apiClient.logout();
-                if (mounted) setState(() => _loggedIn = false);
-              },
-            )
-          : LoginScreen(onLogin: () => setState(() => _loggedIn = true)),
+      duration: const Duration(milliseconds: 420),
+      child: _showSplash
+          ? const _OpeningSplash(key: ValueKey('opening-splash'))
+          : (_loggedIn
+              ? MainShell(
+                  key: const ValueKey('main-shell'),
+                  onLogout: () async {
+                    await apiClient.logout();
+                    if (mounted) setState(() => _loggedIn = false);
+                  },
+                )
+              : LoginScreen(
+                  key: const ValueKey('login-screen'),
+                  onLogin: () => setState(() => _loggedIn = true),
+                )),
+    );
+  }
+}
+
+class _OpeningSplash extends StatefulWidget {
+  const _OpeningSplash({super.key});
+
+  @override
+  State<_OpeningSplash> createState() => _OpeningSplashState();
+}
+
+class _OpeningSplashState extends State<_OpeningSplash> {
+  bool _logoIn = false;
+  bool _tagIn = false;
+  bool _lineIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(milliseconds: 80), () {
+      if (mounted) setState(() => _logoIn = true);
+    });
+    Future.delayed(const Duration(milliseconds: 380), () {
+      if (mounted) setState(() => _tagIn = true);
+    });
+    Future.delayed(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _lineIn = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF04142D), Color(0xFF0A2350), Color(0xFF0E3B7D)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+          ),
+          Positioned(
+            top: -80,
+            right: -40,
+            child: Container(
+              width: 220,
+              height: 220,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [Color(0x6649D0FF), Color(0x0049D0FF)],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: -90,
+            left: -60,
+            child: Container(
+              width: 260,
+              height: 260,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [Color(0x553AD1E5), Color(0x003AD1E5)],
+                ),
+              ),
+            ),
+          ),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimatedScale(
+                    scale: _logoIn ? 1 : 0.9,
+                    duration: const Duration(milliseconds: 480),
+                    curve: Curves.easeOutCubic,
+                    child: AnimatedOpacity(
+                      opacity: _logoIn ? 1 : 0,
+                      duration: const Duration(milliseconds: 420),
+                      child: const Text(
+                        'POSI',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 48,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 2.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  AnimatedSlide(
+                    offset: _tagIn ? Offset.zero : const Offset(0, 0.2),
+                    duration: const Duration(milliseconds: 420),
+                    curve: Curves.easeOut,
+                    child: AnimatedOpacity(
+                      opacity: _tagIn ? 1 : 0,
+                      duration: const Duration(milliseconds: 420),
+                      child: const Text(
+                        'Platform kompetisi dan pembelajaran',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Color(0xFFD1E4FF),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  AnimatedOpacity(
+                    opacity: _lineIn ? 1 : 0,
+                    duration: const Duration(milliseconds: 360),
+                    child: Container(
+                      width: 140,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF76D8FF), Color(0xFF4A7CFF)],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Reveal extends StatefulWidget {
+  const _Reveal({
+    required this.child,
+    this.delayMs = 0,
+    this.offset = const Offset(0, 0.08),
+  });
+
+  final Widget child;
+  final int delayMs;
+  final Offset offset;
+
+  @override
+  State<_Reveal> createState() => _RevealState();
+}
+
+class _RevealState extends State<_Reveal> {
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(Duration(milliseconds: widget.delayMs), () {
+      if (mounted) setState(() => _visible = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSlide(
+      offset: _visible ? Offset.zero : widget.offset,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+      child: AnimatedOpacity(
+        opacity: _visible ? 1 : 0,
+        duration: const Duration(milliseconds: 320),
+        child: widget.child,
+      ),
     );
   }
 }
@@ -1050,129 +1238,248 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF071226), Color(0xFF0D1D39), Color(0xFF0A1F3F)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
-        child: Center(
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'POSI',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 36,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Masuk dengan akun POSI anda untuk mengakses fitur chat dan informasi seputar POSI.',
-                  style: TextStyle(color: Color(0xFF9AB3D7)),
-                ),
-                const SizedBox(height: 24),
-                if (_error != null)
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 14),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF3E1E1E),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFE57373)),
-                    ),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(color: Color(0xFFFFCDD2)),
-                    ),
-                  ),
-                const Text('Email',
-                    style: TextStyle(
-                        color: Colors.white70, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _emailCtrl,
-                  keyboardType: TextInputType.emailAddress,
-                  enabled: !_loading,
-                  decoration: const InputDecoration(
-                    hintText: 'nama@contoh.com',
-                    prefixIcon:
-                        Icon(Icons.mail_outline, color: Color(0xFF6E8BB6)),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                const Text('Password',
-                    style: TextStyle(
-                        color: Colors.white70, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _passCtrl,
-                  obscureText: _obscure,
-                  enabled: !_loading,
-                  decoration: InputDecoration(
-                    hintText: '********',
-                    prefixIcon:
-                        const Icon(Icons.lock_outline, color: Color(0xFF6E8BB6)),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscure ? Icons.visibility_off : Icons.visibility,
-                        color: const Color(0xFF6E8BB6),
-                      ),
-                      onPressed: () => setState(() => _obscure = !_obscure),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: _loading ? null : _handleLogin,
-                  child: _loading
-                      ? Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
-                            SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            ),
-                            SizedBox(width: 10),
-                            Text('Sedang masuk...'),
-                          ],
-                        )
-                      : const Text('Masuk'),
-                ),
-                const SizedBox(height: 14),
-                _GoogleLoginButton(
-                  onPressed:
-                      (_loading || _googleLoading) ? null : _handleGoogleLogin,
-                ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: _loading
-                      ? null
-                      : () => launchUrlString(
-                          'https://posi.id/forgot-password',
-                          mode: LaunchMode.externalApplication,
-                        ),
-                  child: const Text(
-                    'Lupa password?',
-                    style: TextStyle(color: Color(0xFF8CB7FF)),
-                  ),
-                ),
-              ],
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF04142E), Color(0xFF0A2555), Color(0xFF0A2F66)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
             ),
           ),
-        ),
+          Positioned(
+            top: -90,
+            right: -70,
+            child: Container(
+              width: 280,
+              height: 280,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [Color(0x553CC5FF), Color(0x003CC5FF)],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: -110,
+            left: -70,
+            child: Container(
+              width: 300,
+              height: 300,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [Color(0x55497BFF), Color(0x00497BFF)],
+                ),
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 430),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _Reveal(
+                        delayMs: 40,
+                        offset: Offset(-0.04, 0.04),
+                        child: Text(
+                          'POSI',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 44,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.8,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const _Reveal(
+                        delayMs: 120,
+                        child: Text(
+                          'Masuk untuk akses chat realtime, informasi kompetisi, dan progres belajar kamu.',
+                          style: TextStyle(
+                            color: Color(0xFFC6D9F8),
+                            fontSize: 15.2,
+                            height: 1.45,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _Reveal(
+                        delayMs: 210,
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+                          decoration: BoxDecoration(
+                            color: const Color(0xCCFFFFFF),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0x66D7E7FF)),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x331E88E5),
+                                blurRadius: 20,
+                                offset: Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 220),
+                                child: _error == null
+                                    ? const SizedBox.shrink()
+                                    : Container(
+                                        key: ValueKey(_error),
+                                        width: double.infinity,
+                                        margin: const EdgeInsets.only(bottom: 14),
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFFEEF0),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: const Color(0xFFFFB3BC)),
+                                        ),
+                                        child: Text(
+                                          _error!,
+                                          style: const TextStyle(
+                                            color: Color(0xFF9F1D2E),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                              ),
+                              const Text(
+                                'Email',
+                                style: TextStyle(
+                                  color: Color(0xFF20416A),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: _emailCtrl,
+                                keyboardType: TextInputType.emailAddress,
+                                textInputAction: TextInputAction.next,
+                                enabled: !_loading,
+                                decoration: const InputDecoration(
+                                  hintText: 'nama@contoh.com',
+                                  prefixIcon: Icon(Icons.mail_outline, color: Color(0xFF5F7FA8)),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Password',
+                                style: TextStyle(
+                                  color: Color(0xFF20416A),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: _passCtrl,
+                                obscureText: _obscure,
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: (_) => _loading ? null : _handleLogin(),
+                                enabled: !_loading,
+                                decoration: InputDecoration(
+                                  hintText: '********',
+                                  prefixIcon:
+                                      const Icon(Icons.lock_outline, color: Color(0xFF5F7FA8)),
+                                  suffixIcon: IconButton(
+                                    icon: Icon(
+                                      _obscure ? Icons.visibility_off : Icons.visibility,
+                                      color: const Color(0xFF5F7FA8),
+                                    ),
+                                    onPressed: () => setState(() => _obscure = !_obscure),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: _loading ? null : _handleLogin,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF1663D8),
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    minimumSize: const Size(0, 52),
+                                  ),
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 220),
+                                    child: _loading
+                                        ? const Row(
+                                            key: ValueKey('loading-login'),
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                              SizedBox(width: 10),
+                                              Text('Sedang masuk...'),
+                                            ],
+                                          )
+                                        : const Text(
+                                            'Masuk',
+                                            key: ValueKey('idle-login'),
+                                          ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              _GoogleLoginButton(
+                                onPressed: (_loading || _googleLoading)
+                                    ? null
+                                    : _handleGoogleLogin,
+                              ),
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: TextButton(
+                                  onPressed: _loading
+                                      ? null
+                                      : () => launchUrlString(
+                                            'https://posi.id/forgot-password',
+                                            mode: LaunchMode.externalApplication,
+                                          ),
+                                  child: const Text(
+                                    'Lupa password?',
+                                    style: TextStyle(
+                                      color: Color(0xFF2E6DDC),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
