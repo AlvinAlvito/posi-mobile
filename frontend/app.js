@@ -7,6 +7,79 @@ const ROUTES = {
   DASHBOARD: "#/dashboard",
   BROADCAST: "#/broadcast",
 };
+const DEFAULT_SHORTCUTS = [
+  {
+    id: "greeting",
+    label: "greeting",
+    text: "Halo, terima kasih sudah menghubungi admin POSI. Kami bantu cek kendalanya ya.",
+  },
+  {
+    id: "followup",
+    label: "followup",
+    text: "Baik, mohon tunggu sebentar. Saya bantu cek data Anda terlebih dahulu.",
+  },
+  {
+    id: "closing",
+    label: "closing",
+    text: "Baik, jika masih ada kendala lain silakan balas chat ini kembali. Terima kasih.",
+  },
+];
+
+function parseJwt(token) {
+  try {
+    const part = String(token || "").split(".")[1];
+    if (!part) return null;
+    const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(window.atob(base64));
+  } catch (_) {
+    return null;
+  }
+}
+
+function getShortcutStorageKey(token) {
+  const payload = parseJwt(token);
+  const identity = payload?.email || payload?.id || "admin";
+  return `posi_admin_shortcuts:${identity}`;
+}
+
+function loadShortcuts(token) {
+  try {
+    const raw = localStorage.getItem(getShortcutStorageKey(token));
+    if (!raw) return DEFAULT_SHORTCUTS;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_SHORTCUTS;
+    return parsed
+      .map((item, index) => ({
+        id: item?.id || `shortcut-${index + 1}`,
+        label: String(item?.label || "").trim(),
+        text: String(item?.text || ""),
+      }))
+      .filter((item) => item.label && item.text);
+  } catch (_) {
+    return DEFAULT_SHORTCUTS;
+  }
+}
+
+function saveShortcuts(token, shortcuts) {
+  localStorage.setItem(getShortcutStorageKey(token), JSON.stringify(shortcuts));
+}
+
+function buildShortcutState(value, caret, shortcuts) {
+  const beforeCaret = String(value || "").slice(0, Math.max(0, caret || 0));
+  const match = beforeCaret.match(/(^|\s)\/([a-zA-Z0-9_-]*)$/);
+  if (!match) return { open: false, query: "", items: [], range: null };
+  const query = match[2] || "";
+  const startedAt = beforeCaret.length - query.length - 1;
+  const items = shortcuts.filter((item) =>
+    item.label.toLowerCase().includes(query.toLowerCase())
+  );
+  return {
+    open: true,
+    query,
+    items,
+    range: { start: startedAt, end: beforeCaret.length },
+  };
+}
 
 function apiClient(token) {
   const instance = axios.create({ baseURL: API_BASE, withCredentials: true });
@@ -286,6 +359,81 @@ function TicketList({ tickets, activeId, onSelect, role, onReachEnd, hasMore, lo
   );
 }
 
+function ShortcutManager({
+  shortcuts,
+  draftLabel,
+  draftText,
+  editingId,
+  onDraftLabelChange,
+  onDraftTextChange,
+  onEdit,
+  onDelete,
+  onCancel,
+  onSave,
+  onClose,
+}) {
+  return (
+    <div className="shortcut-manager">
+      <div className="shortcut-manager-head">
+        <div>
+          <div className="title" style={{ fontSize: 16 }}>Shortcut Pesan</div>
+          <div className="muted">Panggil di chat dengan format `/nama-shortcut`.</div>
+        </div>
+        <button className="chip ghost" onClick={onClose}>Tutup</button>
+      </div>
+      <div className="shortcut-manager-grid">
+        <div className="shortcut-list-panel">
+          {shortcuts.length === 0 ? (
+            <div className="empty" style={{ padding: 16 }}>Belum ada shortcut.</div>
+          ) : (
+            shortcuts.map((item) => (
+              <div key={item.id} className="shortcut-card">
+                <div className="shortcut-card-head">
+                  <div>
+                    <div className="shortcut-code">/{item.label}</div>
+                    <div className="shortcut-preview">{item.text}</div>
+                  </div>
+                  <div className="row" style={{ gap: 6 }}>
+                    <button className="chip ghost" onClick={() => onEdit(item)}>Edit</button>
+                    <button className="chip ghost danger" onClick={() => onDelete(item.id)}>Hapus</button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="shortcut-form-panel">
+          <div className="shortcut-form-title">
+            {editingId ? "Edit Shortcut" : "Tambah Shortcut"}
+          </div>
+          <label className="muted">Nama shortcut</label>
+          <input
+            className="input"
+            placeholder="contoh: admin, cekdata, followup"
+            value={draftLabel}
+            onChange={(e) => onDraftLabelChange(e.target.value)}
+          />
+          <label className="muted" style={{ marginTop: 10 }}>Isi pesan</label>
+          <textarea
+            className="shortcut-textarea"
+            placeholder="Teks yang akan dimasukkan ke textbox chat"
+            value={draftText}
+            onChange={(e) => onDraftTextChange(e.target.value)}
+          />
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 10 }}>
+            {editingId && (
+              <button className="chip ghost" onClick={onCancel}>Batal Edit</button>
+            )}
+            <button className="chip strong" onClick={onSave}>
+              {editingId ? "Simpan Perubahan" : "Tambah Shortcut"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChatPanel({
   ticket,
   messages,
@@ -296,10 +444,34 @@ function ChatPanel({
   onBroadcast,
   totalTickets,
   socketConnected,
+  shortcuts,
+  onCreateShortcut,
+  onUpdateShortcut,
+  onDeleteShortcut,
 }) {
   const [text, setText] = useState("");
+  const [shortcutState, setShortcutState] = useState({ open: false, query: "", items: [], range: null });
+  const [shortcutIndex, setShortcutIndex] = useState(0);
+  const [managerOpen, setManagerOpen] = useState(false);
+  const [draftLabel, setDraftLabel] = useState("");
+  const [draftText, setDraftText] = useState("");
+  const [editingId, setEditingId] = useState(null);
   const listRef = React.useRef(null);
-  useEffect(() => setText(""), [ticket?.id]);
+  const textareaRef = React.useRef(null);
+  useEffect(() => {
+    setText("");
+    setShortcutState({ open: false, query: "", items: [], range: null });
+  }, [ticket?.id]);
+  useEffect(() => {
+    setShortcutState((prev) => {
+      if (!prev.open) return prev;
+      const next = buildShortcutState(text, textareaRef.current?.selectionStart ?? text.length, shortcuts);
+      return { ...next };
+    });
+  }, [shortcuts, text]);
+  useEffect(() => {
+    setShortcutIndex(0);
+  }, [shortcutState.query, shortcutState.open]);
 
   const toWhatsAppUrl = (rawNumber) => {
     const digits = String(rawNumber || "").replace(/\D/g, "");
@@ -319,9 +491,72 @@ function ChatPanel({
     node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
   }, [messages, ticket?.id]);
 
+  const resetShortcutDraft = () => {
+    setDraftLabel("");
+    setDraftText("");
+    setEditingId(null);
+  };
+
+  const sanitizeShortcutLabel = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9_-]/g, "");
+
+  const handleTextareaChange = (value, caret) => {
+    setText(value);
+    setShortcutState(buildShortcutState(value, caret, shortcuts));
+  };
+
+  const applyShortcut = (item) => {
+    const el = textareaRef.current;
+    const caret = el?.selectionStart ?? text.length;
+    const nextState = buildShortcutState(text, caret, shortcuts);
+    const range = nextState.range || shortcutState.range;
+    if (!range) return;
+    const nextText = `${text.slice(0, range.start)}${item.text}${text.slice(range.end)}`;
+    setText(nextText);
+    setShortcutState({ open: false, query: "", items: [], range: null });
+    requestAnimationFrame(() => {
+      if (!textareaRef.current) return;
+      const pos = range.start + item.text.length;
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(pos, pos);
+    });
+  };
+
+  const handleShortcutSave = () => {
+    const label = sanitizeShortcutLabel(draftLabel);
+    const body = draftText.trim();
+    if (!label || !body) return;
+    if (shortcuts.some((item) => item.label === label && item.id !== editingId)) {
+      window.alert("Nama shortcut sudah dipakai.");
+      return;
+    }
+    if (editingId) {
+      onUpdateShortcut(editingId, { label, text: body });
+    } else {
+      onCreateShortcut({ label, text: body });
+    }
+    resetShortcutDraft();
+  };
+
+  const handleShortcutEdit = (item) => {
+    setEditingId(item.id);
+    setDraftLabel(item.label);
+    setDraftText(item.text);
+    setManagerOpen(true);
+  };
+
+  const handleShortcutDelete = (id) => {
+    if (!window.confirm("Hapus shortcut ini?")) return;
+    onDeleteShortcut(id);
+    if (editingId === id) resetShortcutDraft();
+  };
+
   if (!ticket)
     return <div className="empty">Pilih tiket untuk melihat percakapan</div>;
-  const statusClass = (ticket.status || "").toLowerCase();
   return (
     <div className="content">
       <div className="toolbar">
@@ -430,11 +665,88 @@ function ChatPanel({
         )}
       </div>
       <div className="send-box">
+        <div className="shortcut-toolbar">
+          <div className="muted">
+            Ketik `/` untuk memanggil shortcut. Contoh: `/greeting`
+          </div>
+          <button className="chip ghost" onClick={() => setManagerOpen((prev) => !prev)}>
+            {managerOpen ? "Tutup Shortcut" : "Kelola Shortcut"}
+          </button>
+        </div>
+        {managerOpen && (
+          <ShortcutManager
+            shortcuts={shortcuts}
+            draftLabel={draftLabel}
+            draftText={draftText}
+            editingId={editingId}
+            onDraftLabelChange={setDraftLabel}
+            onDraftTextChange={setDraftText}
+            onEdit={handleShortcutEdit}
+            onDelete={handleShortcutDelete}
+            onCancel={resetShortcutDraft}
+            onSave={handleShortcutSave}
+            onClose={() => setManagerOpen(false)}
+          />
+        )}
         <textarea
+          ref={textareaRef}
           placeholder="Tulis balasan ke user..."
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => handleTextareaChange(e.target.value, e.target.selectionStart)}
+          onClick={(e) => handleTextareaChange(e.target.value, e.target.selectionStart)}
+          onKeyUp={(e) => handleTextareaChange(e.target.value, e.target.selectionStart)}
+          onKeyDown={(e) => {
+            if (!shortcutState.open || shortcutState.items.length === 0) {
+              if (e.key === "Enter" && !e.shiftKey && text.trim()) {
+                e.preventDefault();
+                onSend(text.trim());
+                setText("");
+                setShortcutState({ open: false, query: "", items: [], range: null });
+              }
+              return;
+            }
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setShortcutIndex((prev) => (prev + 1) % shortcutState.items.length);
+              return;
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setShortcutIndex((prev) => (prev - 1 + shortcutState.items.length) % shortcutState.items.length);
+              return;
+            }
+            if (e.key === "Enter" || e.key === "Tab") {
+              e.preventDefault();
+              const item = shortcutState.items[shortcutIndex] || shortcutState.items[0];
+              if (item) applyShortcut(item);
+              return;
+            }
+            if (e.key === "Escape") {
+              setShortcutState({ open: false, query: "", items: [], range: null });
+            }
+          }}
         />
+        {shortcutState.open && (
+          <div className="shortcut-popover">
+            {shortcutState.items.length === 0 ? (
+              <div className="shortcut-empty">Shortcut tidak ditemukan.</div>
+            ) : (
+              shortcutState.items.map((item, index) => (
+                <button
+                  key={item.id}
+                  className={`shortcut-option ${index === shortcutIndex ? "active" : ""}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyShortcut(item);
+                  }}
+                >
+                  <div className="shortcut-option-code">/{item.label}</div>
+                  <div className="shortcut-option-text">{item.text}</div>
+                </button>
+              ))
+            )}
+          </div>
+        )}
         <div className="row" style={{ justifyContent: "space-between", marginTop: 8 }}>
           <div className="muted" style={{ fontSize: 12 }}>Kirim sebagai admin</div>
           <button
@@ -443,6 +755,7 @@ function ChatPanel({
             onClick={() => {
               onSend(text.trim());
               setText("");
+              setShortcutState({ open: false, query: "", items: [], range: null });
             }}
           >
             📤 Kirim
@@ -470,12 +783,17 @@ function Dashboard({ token, role, onBack, onLogout, onBroadcast }) {
   const [hasMore, setHasMore] = useState(false);
   const [totalTickets, setTotalTickets] = useState(0);
   const [summary, setSummary] = useState({ total: 0, baru: 0, proses: 0, selesai: 0 });
+  const [shortcuts, setShortcuts] = useState(() => loadShortcuts(token));
   const activeIdRef = React.useRef(null);
   const pageRef = React.useRef(1);
   const loadingTicketsRef = React.useRef(false);
   const loadingMoreRef = React.useRef(false);
 
   const api = useMemo(() => apiClient(token), [token]);
+
+  useEffect(() => {
+    setShortcuts(loadShortcuts(token));
+  }, [token]);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -689,6 +1007,39 @@ function Dashboard({ token, role, onBack, onLogout, onBroadcast }) {
     }
   };
 
+  const createShortcut = (payload) => {
+    setShortcuts((prev) => {
+      const next = [
+        ...prev,
+        {
+          id: `shortcut-${Date.now()}`,
+          label: payload.label,
+          text: payload.text,
+        },
+      ];
+      saveShortcuts(token, next);
+      return next;
+    });
+  };
+
+  const updateShortcut = (id, payload) => {
+    setShortcuts((prev) => {
+      const next = prev.map((item) =>
+        item.id === id ? { ...item, label: payload.label, text: payload.text } : item
+      );
+      saveShortcuts(token, next);
+      return next;
+    });
+  };
+
+  const deleteShortcut = (id) => {
+    setShortcuts((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      saveShortcuts(token, next);
+      return next;
+    });
+  };
+
   return (
     <div className="layout">
       <div className="sidebar">
@@ -771,6 +1122,10 @@ function Dashboard({ token, role, onBack, onLogout, onBroadcast }) {
         onBroadcast={onBroadcast}
         totalTickets={totalTickets || tickets.length}
         socketConnected={socketConnected}
+        shortcuts={shortcuts}
+        onCreateShortcut={createShortcut}
+        onUpdateShortcut={updateShortcut}
+        onDeleteShortcut={deleteShortcut}
       />
     </div>
   );

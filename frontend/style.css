@@ -503,6 +503,109 @@ textarea {
   bottom: 0;
   z-index: 5;
 }
+.shortcut-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.shortcut-manager {
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255,255,255,0.97), rgba(240,245,255,0.95));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.shortcut-manager-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.shortcut-manager-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 1fr);
+  gap: 12px;
+}
+.shortcut-list-panel {
+  max-height: 260px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+.shortcut-card {
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.95);
+  padding: 12px;
+}
+.shortcut-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.shortcut-code,
+.shortcut-option-code {
+  font-weight: 800;
+  color: #1d4ed8;
+  margin-bottom: 4px;
+}
+.shortcut-preview,
+.shortcut-option-text {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.shortcut-form-panel {
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 12px;
+}
+.shortcut-form-title {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.shortcut-textarea {
+  min-height: 120px;
+}
+.shortcut-popover {
+  margin-top: 8px;
+  border: 1px solid rgba(191, 219, 254, 0.95);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 36px rgba(37, 99, 235, 0.16);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.shortcut-option {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+  background: transparent;
+  text-align: left;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+.shortcut-option:last-child {
+  border-bottom: none;
+}
+.shortcut-option:hover,
+.shortcut-option.active {
+  background: linear-gradient(135deg, rgba(219,234,254,0.8), rgba(238,242,255,0.9));
+}
+.shortcut-empty {
+  padding: 14px;
+  color: #64748b;
+  font-size: 13px;
+}
 .muted {
   color: var(--muted);
   font-size: 13px;
@@ -554,6 +657,11 @@ textarea {
 .chip.ghost {
   background: #eef2ff;
   color: #1e3a8a;
+}
+.chip.ghost.danger {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
 }
 .chip.strong {
   background: linear-gradient(135deg, #4f46e5, #2563eb);
@@ -945,5 +1053,16 @@ textarea {
   }
   .broadcast-card-meta {
     gap: 6px;
+  }
+  .shortcut-toolbar,
+  .shortcut-manager-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .shortcut-manager-grid {
+    grid-template-columns: 1fr;
+  }
+  .shortcut-card-head {
+    flex-direction: column;
   }
 }
