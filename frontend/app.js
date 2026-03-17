@@ -23,6 +23,46 @@ const DEFAULT_SHORTCUTS = [
     label: "closing",
     text: "Baik, jika masih ada kendala lain silakan balas chat ini kembali. Terima kasih.",
   },
+  {
+    id: "halo-bantu",
+    label: "halo-bantu",
+    text: "Halo kak, ada yang bisa admin bantu kak ? ☺️🙏",
+  },
+  {
+    id: "verifikasi-1x24",
+    label: "verifikasi-1x24",
+    text: "langkah selanjutnya mohon tunggu verifikasi pendaftaran 1 x 24 jam operasional kantor dari admin untuk approved pendaftaran kamu ya kak .",
+  },
+  {
+    id: "kolektif-online-free",
+    label: "kolektif-online-free",
+    text: "Berikut saya kirim link pendaftaran kolektifnya:\nhttps://s.id/RegKom-OnlineFreePOSI2025\n*(Silahkan baca deskripsi di google form)*\n\n*Untuk pendaftaran kolektif minimal 20 peserta ya pak/bu. Dan 1 email berlaku hanya untuk 1 peserta.*\n\n*BATAS PENDAFTARAN KOLEKTIF FSM, RABU 25 Maret PUKUL 15.00 WIB*\n\nJika sudah selesai mengisi data mohon infokan kembali ke admin 📍http://wa.me/6281262739364 🙏😊",
+  },
+  {
+    id: "join-group",
+    label: "join-group",
+    text: "Jangan lupa join di grup wa maupun telegram pada link Kompetisi dan bidang yang kamu ikuti ya kak...\nsilahkan bergabung karena semua info ujian akan dishare disana",
+  },
+  {
+    id: "edit-profil",
+    label: "edit-profil",
+    text: "Halo kak, boleh bantu isi form *Edit Profil* berikut ini ya :\n\nNama :\nEmail :\nData yang ingin di edit :",
+  },
+  {
+    id: "kolektif-premium",
+    label: "kolektif-premium",
+    text: "Berikut Link Pendaftaran KHUSUS kolektif Premium:\nhttps://bit.ly/FormPendaftaranKolektifPremiumPOSI2025\n*(Silahkan baca deskripsi di google form)*\n\n*Untuk pendaftaran kolektif minimal 20 peserta ya pak/bu. Dan 1 email berlaku hanya untuk 1 peserta.*\n\n*BATAS PENDAFTARAN KOLEKTIF FSM RABU 27 Maret PUKUL 15.00 WIB*\nJika sudah selesai mengisi data mohon infokan kembali ke admin 📍http://wa.me/6281262739364 🙏😊",
+  },
+  {
+    id: "cara-daftar-posi",
+    label: "cara-daftar-posi",
+    text: "*CARA PENDAFTARAN POSI.ID* :\n1. *Daftar* atau Membuat akun di https://posi.id/login *(jika belum pernah mendaftar)*.\n2. *Login* dengan email yang sudah terdaftar *(jika sudah memiliki akun di posi.id)*\n3. Jika sudah berhasil login, maka *di halaman utama silahkan klik menu KOMPETISI* .\n4. Setelah itu akan terlihat Kompetisi-kompetisi yang tersedia. Silahkan pilih *Kompetisi yang ingin anda daftarkan*.\n5. Selanjutnya silahkan klik *DAFTAR* pada bidang kompetisi yang ingin diikuti.\n6. Lalu *Upload syarat pendaftaran dan klik Daftar Sekarang*.\n7. Jika sudah selesai kamu akan *menunggu verifikasi pendaftaran oleh admin selama 1x24 jam (sesuai jam operasional kantor POSI ya)*\n8. Setelah berhasil diverifikasi oleh Admin maka kamu sudah berhasil melakukan pendaftaran Kompetisi dan Bidang.\n9. Silahkan masuk ke *halaman utama KOMPETISI TERDAFTAR  untuk melihat bidang dan jadwal ujian* yang sudah kamu daftarkan \n10. Silahkan klik *link group* agar kamu mendapatkan informasi terkait Kompetisi yang kamu ikuti.",
+  },
+  {
+    id: "admin-pemesanan",
+    label: "admin-pemesanan",
+    text: "perihal pemesanan silahkan hubungi admin pemesanan berikut kak :\n📍Https://wa.me/6282181185436",
+  },
 ];
 
 function parseJwt(token) {
@@ -48,13 +88,20 @@ function loadShortcuts(token) {
     if (!raw) return DEFAULT_SHORTCUTS;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return DEFAULT_SHORTCUTS;
-    return parsed
+    const normalized = parsed
       .map((item, index) => ({
         id: item?.id || `shortcut-${index + 1}`,
         label: String(item?.label || "").trim(),
         text: String(item?.text || ""),
       }))
       .filter((item) => item.label && item.text);
+    const existingLabels = new Set(normalized.map((item) => item.label));
+    const merged = [
+      ...normalized,
+      ...DEFAULT_SHORTCUTS.filter((item) => !existingLabels.has(item.label)),
+    ];
+    localStorage.setItem(getShortcutStorageKey(token), JSON.stringify(merged));
+    return merged;
   } catch (_) {
     return DEFAULT_SHORTCUTS;
   }
